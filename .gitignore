@@ -1,0 +1,14 @@
+# Python virtual environment
+gem5_venv/
+ENV/
+.env/
+*.pyc
+__pycache__/
+
+# Disk images
+images/*
+images/*
+
+# Output directories
+out/
+logs/
