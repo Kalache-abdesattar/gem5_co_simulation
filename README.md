@@ -13,12 +13,12 @@ This repository provides a wrapper and supporting scripts to run **co-simulation
 ---
 
 ## 🔧 Prerequisits
-'''bash
+```bash
 sudo apt update
 sudo apt install -y build-essential python3 python3-dev python3-six \
     scons m4 libprotobuf-dev protobuf-compiler libgoogle-perftools-dev \
     libboost-all-dev libhdf5-dev zlib1g-dev
-'''
+```
 
 ## 🔧 Requirements
 
