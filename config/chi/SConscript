@@ -1,0 +1,25 @@
+# /home/l3cachehierarchy/SConscript
+Import('env')
+
+print("Building CHI extras...")
+
+env.Append(PYTHONPATH=['config/chi'])
+
+# Explicitly install all CHI Python sources
+env.Install(
+    'config/chi',
+    [
+        'config/chi/__init__.py',
+        'config/chi/network/chi_noc.py',
+        'config/chi/l3_cache_hierarchy.py',
+        'config/chi/nodes/__init__.py',
+        'config/chi/nodes/abstract_node.py',
+        'config/chi/nodes/directory.py',
+        'config/chi/nodes/dma_requestor.py',
+        'config/chi/nodes/memory_controller.py',
+        'config/chi/nodes/private_l1_moesi_cache.py',
+    ]
+)
+
+# SimObject('l3_cache_hierarchy.py', sim_objects=['l3CacheHierarchy'])
+# SimObject('chi_noc.py', sim_objects=['ChiNoc'])
