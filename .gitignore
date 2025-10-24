@@ -12,3 +12,5 @@ images/*
 # Output directories
 out/
 logs/
+
+md5out/
