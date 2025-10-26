@@ -27,46 +27,42 @@
 
 
 """
-Run full-system Ubuntu simulation with configurable CPU type, cache hierarchy, and checkpoints.
-
-
 Usage
 -----
 ```
 
-# Default (4 cores, 1 per cluster, 16GiB memory)
-    .gem5/build/RISCV_CHI/gem5.opt \
-        gem5_co_simulation/config/run/riscv-ubuntu-run.py
+Script to run PARSEC benchmarks with gem5.
+The script expects a benchmark program name and the simulation
+size. The system is fixed with 2 CPU cores, MESI Two Level system
+cache and 3 GiB DDR4 memory. It uses the x86 board.
 
-# Custom cores and memory
-    .gem5/build/RISCV_CHI/gem5.opt \
-        gem5_co_simulation/config/run/riscv-ubuntu-run.py \
-        --num-cores 8 \
-        --cores-per-cluster 2 \
-        --mem-size 8GiB
-        --disk-image gem5_co_simulation/images/disk/riscv-ubuntu-24.04-custom.img
+This script will count the total number of instructions executed
+in the ROI. It also tracks how much wallclock and simulated time.
 
-# Run and save a checkpoint at the end
-    .gem5/build/RISCV_CHI/gem5.opt \
-        gem5_co_simulation/config/run/riscv-ubuntu-run.py \
-        --save-checkpoint \
-        --checkpoint-path gem5_co_simulation/checkpoints/ubuntu_boot
+Usage:
+------
 
-# Load from a checkpoint
-    .gem5/build/RISCV_CHI/gem5.opt \
-        gem5_co_simulation/config/run/riscv-ubuntu-run.py \
-        --load-checkpoint \
-        --checkpoint-path gem5_co_simulation/checkpoints/ubuntu_boot
+```
+scons build/X86/gem5.opt
+./build/X86/gem5.opt \
+    configs/example/gem5_library/x86-parsec-benchmarks.py \
+    --benchmark <benchmark_name> \
+    --size <simulation_size>
+```
+
+## build/X86_CHI/gem5.opt configs/example/gem5_library/x86-parsec-benchmarks.py --benchmark blackscholes --size simsmall
 
 ```
 """
 
 
 import argparse
+import time
+
 import m5
 from m5.objects import Root
 
-from gem5.components.boards.riscv_board import RiscvBoard
+from gem5.components.boards.x86_board import X86Board
 from gem5.components.memory import DualChannelDDR4_2400, SingleChannelDDR3_1600
 from gem5.components.processors.cpu_types import CPUTypes
 from gem5.components.processors.simple_processor import SimpleProcessor
@@ -84,20 +80,35 @@ from gem5.components.processors.simple_switchable_processor import SimpleSwitcha
 
 
 
-
 # Verify ISA
-requires(isa_required=ISA.RISCV)
+# We check for the required gem5 build.
+requires(
+    isa_required=ISA.X86,
+    kvm_required=True,
+)
 
-import os 
 
 
-# PATHS
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-CHECKPOINT_DEFAULT = os.path.join(BASE_DIR, "checkpoints", "riscv_ubuntu_checkpoint")
-DISK_IMAGE_DEFAULT = os.path.join(BASE_DIR, "images", "disk", "riscv-ubuntu-24.04-img")
-KERNEL_DEFAULT = os.path.join(BASE_DIR, "images", "kernel", "riscv-linux-5.15.180-kernel")
-BOOTLOADER_DEFAULT = os.path.join(BASE_DIR, "images", "bootloader", "riscv-bootloader-opensbi-1.3.1")
+# Following are the list of benchmark programs for parsec.
 
+benchmark_choices = [
+    "blackscholes",
+    "bodytrack",
+    "canneal",
+    "dedup",
+    "facesim",
+    "ferret",
+    "fluidanimate",
+    "freqmine",
+    "raytrace",
+    "streamcluster",
+    "swaptions",
+    "vips",
+    "x264",
+]
+
+# Following are the input size.
+size_choices = ["simsmall", "simmedium", "simlarge"]
 
 
 # -------------------------------------------------------
@@ -113,34 +124,27 @@ parser.add_argument(
     choices=["chi", "mesi-three-level", "no-cache"],
     help="Cache hierarchy class to use",
 )
+parser.add_argument(
+    "--mem-size", type=str, default="3GiB", help="Memory size (e.g., 2GiB, 8GiB)"
+)
+
+# The arguments accepted are the benchmark name and the simulation size.
 
 parser.add_argument(
-    "--cpu-type",
+    "--benchmark",
     type=str,
-    default="timing",
-    choices=["timing", "o3", "minor"],
-    help="Type of CPU model to use: timing (TimingSimpleCPU), o3 (O3CPU), or minor (MinorCPU)",
+    required=True,
+    help="Input the benchmark program to execute.",
+    choices=benchmark_choices,
 )
 
 parser.add_argument(
-    "--mem-size", type=str, default="16GiB", help="Memory size (e.g., 2GiB, 8GiB)"
-)
-
-parser.add_argument(
-    "--disk-image",
+    "--size",
     type=str,
-    default=DISK_IMAGE_DEFAULT,
-    help="Path to the root disk image",
+    required=True,
+    help="Simulation size the benchmark program.",
+    choices=size_choices,
 )
-parser.add_argument("--kernel", type=str, default=KERNEL_DEFAULT, help="Path to the kernel image")
-parser.add_argument("--bootloader", type=str, default=BOOTLOADER_DEFAULT, help="Path to the bootloader")
-
-parser.add_argument("--save-checkpoint", action="store_true",
-                    help="Save a checkpoint at the end of the simulation")
-parser.add_argument("--load-checkpoint", action="store_true",
-                    help="Load from an existing checkpoint instead of booting fresh")
-parser.add_argument("--checkpoint-path", type=str, default=CHECKPOINT_DEFAULT,
-                    help="Path to the checkpoint directory")
 
 args = parser.parse_args()
 
@@ -197,109 +201,93 @@ memory = SingleChannelDDR3_1600(size=args.mem_size)
 # -------------------------------------------------------
 # Processor setup
 # -------------------------------------------------------
-# -------------------------------------------------------
-# Processor setup
-# -------------------------------------------------------
-if args.cpu_type == "timing":
-    core_type = CPUTypes.TIMING
-elif args.cpu_type == "o3":
-    core_type = CPUTypes.O3
-elif args.cpu_type == "minor":
-    core_type = CPUTypes.MINOR
-else:
-    raise ValueError(f"Unsupported CPU type: {args.cpu_type}")
-
-
 processor = SimpleSwitchableProcessor(
-    starting_core_type=CPUTypes.ATOMIC,
-    switch_core_type=core_type,
-    isa=ISA.RISCV,
+    starting_core_type=CPUTypes.KVM,
+    switch_core_type=CPUTypes.TIMING,
+    isa=ISA.X86,
     num_cores=args.num_cores,
 )
+
 
 # -------------------------------------------------------
 # Default kernel arguments
 # ---------------------------------------------------+----
 default_args = [
+    "earlyprintk=ttyS0",
     "console=ttyS0",
-    "root=/dev/vda1",
-    "disk_device=/dev/vda1",
-    "rw",
-    "no_systemd=true",
-    "interactive=true",
+    "lpj=7999923",
+    "root={root_value}",
+    "disk_device={disk_device}",
 ]
 
 
 # -------------------------------------------------------
 # Board setup
 # -------------------------------------------------------
-board = RiscvBoard(
+board = X86Board(
     clk_freq="3GHz",
     processor=processor,
     memory=memory,
     cache_hierarchy=cache_hierarchy,
-    new_kernel_args=default_args,
+    new_kernel_args=default_args
 )
 
 # -------------------------------------------------------
 # Workload setup
 # -------------------------------------------------------
-board.set_kernel_disk_workload(
-    kernel=KernelResource(
-        args.kernel
-    ),
 
-    bootloader=BootloaderResource(
-        args.bootloader
-    ),
+# After the system boots, we execute the benchmark program and wait till the
+# ROI `workbegin` annotation is reached (m5_work_begin()). We start collecting
+# the number of committed instructions till ROI ends (marked by `workend`).
+# We then finish executing the rest of the benchmark.
 
-    disk_image=DiskImageResource(
-        local_path=args.disk_image
-    ),
+# Also, we sleep the system for some time so that the output is printed
+# properly.
 
-    readfile_contents=(),
+
+command = (
+    f"cd /home/gem5/parsec-benchmark;"
+    + "source env.sh;"
+    + f"parsecmgmt -a run -p {args.benchmark} -c gcc-hooks -i {args.size}         -n 2;"
+    + "sleep 5;"
+    + "m5 exit;"
 )
+
+
+
+# obtain_resource methods download the images automatically from gem5_resource server
+# the resources are downloaded by default 
+board.set_kernel_disk_workload(
+    kernel=obtain_resource(
+        "x86-linux-kernel-4.19.83", resource_version="1.0.0"
+    ),
+
+    disk_image=obtain_resource("x86-parsec", resource_version="1.0.0"),
+
+    readfile_contents=command,
+)
+
 
 
 # -------------------------------------------------------
 # Exit event handler
 # -------------------------------------------------------
 
-if args.load_checkpoint:
-    def exit_event_handler():
+# functions to handle different exit events during the simuation
+def handle_workbegin():
+    print("Done booting Linux")
+    print("Resetting stats at the start of ROI!")
+    m5.stats.reset()
 
-        print("Second exit: Entering benchamrk ROI")
+    processor.switch()
 
-        print("Switching from Atomic Cores to SimpleTiming Cores...")
-        processor.switch()
+    yield False
 
-        yield False
-        
-        print("Third exit: Final Exit")
-        yield True
 
-else:
-    def exit_event_handler():
-        print("First exit: kernel booted")
-
-        if args.save_checkpoint:
-            print(f"Saving checkpoint to {args.checkpoint_path} ...")
-            simulator.save_checkpoint(args.checkpoint_path)
-        else:
-            print("Checkpoint saving disabled (skipping).")
-
-        yield False
-
-        print("Second exit: Entering benchamrk ROI")
-
-        print("Switching from Atomic Cores to SimpleTiming Cores...")
-        processor.switch()
-
-        yield False
-        
-        print("Third exit: Final Exit")
-        yield True
-
+def handle_workend():
+    print("Dump stats at the end of the ROI!")
+    m5.stats.dump()
+    yield True
 
 
 
@@ -307,24 +295,46 @@ else:
 # -------------------------------------------------------
 # Simulator setup
 # -------------------------------------------------------
-if args.load_checkpoint:
-    print(f"Loading checkpoint from {args.checkpoint_path} ...")
-    simulator = Simulator(
-        board=board,
-        checkpoint_path=args.checkpoint_path,
-        on_exit_event={ExitEvent.EXIT: exit_event_handler()},
-    )
-else:
-    simulator = Simulator(
-        board=board,
-        on_exit_event={ExitEvent.EXIT: exit_event_handler()},
-    )
+simulator = Simulator(
+    board=board,
+
+    # checkpoint_path="/opt/gem5/parsec_cpt",
+    on_exit_event={
+        ExitEvent.WORKBEGIN: handle_workbegin(),
+        ExitEvent.WORKEND: handle_workend(),
+    },
+)
 
 
-# Reset statistics
+# We maintain the wall clock time.
+
+globalStart = time.time()
+
+print("Running the simulation")
+print("Using KVM cpu")
+
 m5.stats.reset()
 
+# We start the simulation
 simulator.run()
+
+print("All simulation events were successful.")
+
+# We print the final simulation statistics.
+
+print("Done with the simulation")
+print()
+print("Performance statistics:")
+
+print("Simulated time in ROI: " + (str(simulator.get_roi_ticks()[0])))
+print(
+    "Ran a total of", simulator.get_current_tick() / 1e12, "simulated seconds"
+)
+print(
+    "Total wallclock time: %.2fs, %.2f min"
+    % (time.time() - globalStart, (time.time() - globalStart) / 60)
+)
+
 
 
 

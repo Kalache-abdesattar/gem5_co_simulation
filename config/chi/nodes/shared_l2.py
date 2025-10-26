@@ -44,6 +44,7 @@ class SharedL2(AbstractNode):
         assoc: int,
         network: RubyNetwork,
         cache_line_size: int,
+        prefetcher_
     ):
         super().__init__(network, cache_line_size)
 
@@ -56,12 +57,17 @@ class SharedL2(AbstractNode):
 
 
         # Only used for L1 controllers
+
         self.send_evictions = False
         self.sequencer = NULL
 
-        # No prefetcher (home nodes don't support prefetchers right now)
-        self.use_prefetcher = False
-        self.prefetcher = NULL
+        if(prefetcher_ is None):
+            self.use_prefetcher = False
+            self.prefetcher = NULL
+        else:
+            self.use_prefetcher = True
+            self.prefetcher = prefetcher_    
+
 
         # Set up home node that allows three hop protocols
         self.is_HN = False 

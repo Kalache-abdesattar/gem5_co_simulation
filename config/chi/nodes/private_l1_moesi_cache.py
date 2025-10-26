@@ -47,6 +47,7 @@ class PrivateL1MOESICache(AbstractNode):
         cache_line_size,
         target_isa: ISA,
         clk_domain: ClockDomain,
+        prefetcher_, 
     ):
         super().__init__(network, cache_line_size)
 
@@ -56,8 +57,14 @@ class PrivateL1MOESICache(AbstractNode):
 
         self.clk_domain = clk_domain
         self.send_evictions = core.requires_send_evicts()
-        self.use_prefetcher = False
-        self.prefetcher = NULL
+
+        if(prefetcher_ is None):
+            self.use_prefetcher = False
+            self.prefetcher = NULL
+        else:
+            print("Use L1 prefetcher")
+            self.use_prefetcher = True
+            self.prefetcher = prefetcher_    
 
         # Only applies to home nodes
         self.is_HN = False

@@ -39,6 +39,9 @@ from m5.objects import (
     RubyCache,
     RRIPRP,
     AddrRange,
+    StridePrefetcher,
+    TaggedPrefetcher,
+    BOPPrefetcher,
 )
 from m5.objects.SubSystem import SubSystem
 
@@ -101,6 +104,8 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
         self._l3_size = l3_size
         self._l3_assoc = l3_assoc
         self._cores_per_cluster = cores_per_cluster
+        self._enable_l1_prefetch = False
+        self._enable_l2_prefetch = False
 
 
     def incorporate_cache(self, board):
@@ -131,22 +136,41 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
 
         
         num_l2_caches = num_cores // self._cores_per_cluster 
-        l2_caches = [] 
+        l2_caches = []
+        l2_prefetchers = []
+
         for i in range(num_l2_caches): 
+            # Create l2_prefetchers objects to be passed to the L2 objects
+            l2_prefetcher = BOPPrefetcher(latency=1, cache_snoop=False) if self._enable_l2_prefetch else None
+            l2_prefetchers.append(l2_prefetcher)
+
             # Create an L2 node 
             l2_cache = SharedL2( 
                 size=self._l2_size, 
                 assoc=self._l2_assoc, 
                 network=self.ruby_system.network, 
-                cache_line_size=board.get_cache_line_size() 
+                cache_line_size=board.get_cache_line_size(),
+                prefetcher_=l2_prefetchers[i]
             ) 
             l2_caches.append(l2_cache) 
+
             l2_caches[i].ruby_system = self.ruby_system
 
 
+        # Construct L1 prefetchers' dictionary lists
+        l1_prefetchers = []
+        for i in range(num_cores):
+            l1_prefetcher_dict = {
+                "L1i" : TaggedPrefetcher(degree=1, latency=1) if self._enable_l1_prefetch else None,
+                "L1d" : StridePrefetcher(degree=1, latency=1) if self._enable_l1_prefetch else None
+            }
+            l1_prefetchers.append(l1_prefetcher_dict)
+
+        
+
         # Create one core cluster with a split I/D cache for each core
         self.core_clusters = [
-            self._create_core_cluster(core, i, board, l2_caches, self._cores_per_cluster)
+            self._create_core_cluster(core, i, board, l2_caches, l1_prefetchers, self._cores_per_cluster)
             for i, core in enumerate(board.get_processor().get_cores())
         ]
 
@@ -203,7 +227,7 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
 
 
     def _create_core_cluster(
-        self, core, core_num: int, board, l2_caches, cores_per_cluster
+        self, core, core_num: int, board, l2_caches, l1_prefetchers, cores_per_cluster
     ) -> SubSystem:
         """Given the core and the core number this function creates a cluster
         for the core with a split I/D cache.
@@ -220,6 +244,7 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
             cache_line_size=board.get_cache_line_size(),
             target_isa=board.get_processor().get_isa(),
             clk_domain=board.get_clock_domain(),
+            prefetcher_=l1_prefetchers[core_num].get("L1d")
         )
         cluster.icache = PrivateL1MOESICache(
             size=self._l1_size,
@@ -229,6 +254,7 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
             cache_line_size=board.get_cache_line_size(),
             target_isa=board.get_processor().get_isa(),
             clk_domain=board.get_clock_domain(),
+            prefetcher_=l1_prefetchers[core_num].get("L1i")
         )
 
         # The sequencers are used to connect the core to the cache
