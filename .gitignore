@@ -5,8 +5,9 @@ ENV/
 *.pyc
 __pycache__/
 
+venv/
+
 # Disk images
-images/*
 images/*
 
 # Output directories
@@ -14,3 +15,10 @@ out/
 logs/
 
 m5out/
+
+checkpoints/*
+m5out/*
+
+stats.json
+stats.txt
+stats.h5
