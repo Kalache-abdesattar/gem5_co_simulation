@@ -18,6 +18,8 @@ env.Install(
         'config/chi/nodes/dma_requestor.py',
         'config/chi/nodes/memory_controller.py',
         'config/chi/nodes/private_l1_moesi_cache.py',
+        'config/chi/nodes/shared_l2.py',
+        'config/chi/nodes/shared_l3.py',
     ]
 )
 
