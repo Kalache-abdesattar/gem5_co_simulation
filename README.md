@@ -13,6 +13,7 @@ This repository provides a wrapper and supporting scripts to run **co-simulation
 ---
 
 ## 🔧 Prerequisits
+ 
 ```bash
 sudo apt update
 sudo apt install -y build-essential python3 python3-dev python3-six \
@@ -20,7 +21,36 @@ sudo apt install -y build-essential python3 python3-dev python3-six \
     libboost-all-dev libhdf5-dev zlib1g-dev
 ```
 
-## Using the Docker Image
+Make sure python3 --version > 3.10.12
+
+## Building From Source 
+### 1. Setting up a python virtual environment (Recommended)
+```bash
+python3.xx -m venv venv 
+source venv/bin/activate
+python3 -m pip install --upgrade pip
+
+```
+
+### 2. Clone this Repository and Init
+```bash
+git clone ...
+source env.sh 
+```
+Executing **env.sh** initializes submodules, installs dependancies, builds gem5 models, pulls the necessary bootloaders and kernel images from [gem5 resources](https://resources.gem5.org/).
+
+
+### 3. Getting the Disk Images
+You can download the latest disk images -gem5 v25 compatible- for RISCV, X86, and ARM from [gem5 resources](https://resources.gem5.org/). 
+Download the disk image to **images/disk/**. The disk images are empty, only containing gem5-related drivers and init scripts. 
+
+```bash
+# Example
+wget -O images/kernel/riscv-ubuntu-24.04-img https://gem5dist.blob.core.windows.net/dist/develop/images/riscv/ubuntu-24-04/riscv-ubuntu-24.04-20250515.gz
+```
+You can get the images with the Gromacs build (along with its dependancies) for X86 and RISCV from the docker image (see [docker image](https://git.dare.megware.com/dmk/gem5_co_simulation#:~:text=Docker%20Image%20Directory%20Structure)).
+
+## 2. Using the Ready-made Docker Image
 All the sources, images, and artifects are contained within the docker image. Therefore, there is no need to reproduce the artifects yourself. 
 ```bash
 docker pull abdesattar/tau_gem5:latest
@@ -31,7 +61,7 @@ Run the docker image interactively with privileged permissions (required for KVM
 docker run -it --privileged -v $HOME_DIR:/mnt DOCKER_IMAGE
 ```
 
-## Docker Image Directory Structure
+### Docker Image Directory Structure
 ```
 /home/gem5_co_simulation/ (main)
 ├── gem5/ (submodule)   # GEM5 submodule
@@ -47,8 +77,8 @@ docker run -it --privileged -v $HOME_DIR:/mnt DOCKER_IMAGE
 │   ├── kernel/       
 │   ├── disk/
 |   |   ├── riscv-ubuntu-npb        # ubuntu 24.04 image with Nasa Parallel Benchmark built for RISCV
-|   |   ├── riscv-ubuntu-24.04.img  # A generic ubuntu 24.04 image with Gromacs+libm5.a built for RISCV (V extension disabled)
-|   |   ├── x86-ubuntu-22.04.img    # A generic ubuntu 22.04 image with Gromacs+libm5.a built for X86 
+|   |   ├── riscv-ubuntu-24.04-img  # A generic ubuntu 24.04 image with Gromacs+libm5.a built for RISCV (V extension disabled)
+|   |   ├── x86-ubuntu-22.04-img    # A generic ubuntu 22.04 image with Gromacs+libm5.a built for X86 
 │   └── bootloaders/
 ├── out/                # GEM5 simulation default output directory
 └── helper/             # Helper scripts for parsing GEM5 stats
@@ -57,8 +87,8 @@ docker run -it --privileged -v $HOME_DIR:/mnt DOCKER_IMAGE
 /root/.cache/gem5/      # contains x86-parsec disk image downloaded directly from gem5.resources
 ```
 
-## Re-running the Experiments Yourself 
-### X86 Parsec Benchmark 
+### Re-running the Experiments Yourself 
+#### X86 Parsec Benchmark 
 From the repo root **/home/gem5_co_simulation**.
 
 ```bash
@@ -83,7 +113,7 @@ When the gem5 loads the kernel and disk image, it exposes a port terminal port (
 gem5/util/term/m5term 3456
 ```
 
-### X86 and RISCV Generic Run
+#### X86 and RISCV Generic Run
 Under **/home/gem5_co_simulation/config/run**, two generic run script for both X86 and RISCV are found.  
 ```bash
 ~ gem5/build/RISCV_CHI/gem5.opt config/run/riscv-ubuntu-run.py --help
@@ -136,7 +166,7 @@ gem5/util/term/m5term 3456
 /root/gem5~ ./bin/ft.S.x
 ```
 
-### Gromacs
+#### Gromacs
 Similar as before, just point gem5 to **images/disk/riscv-ubuntu-24.04-img**:
 ```bash
 ~ gem5/build/RISCV_CHI/gem5.opt --disk-image /images/disk/riscv-ubuntu-24.04-img --checkpoint-path checkpoints/riscv_gromacs_checkpoint --save-checkpoint
@@ -154,13 +184,13 @@ cd /home/gromacs/out
 sudo /home/gromacs/build/bin/gmx mdrun -v -deffnm md_0_10 -cpt -1 -nt 4
 ```
 
-### Stats Parser
+#### Stats Parser
 Stats parser parses the json-formatted stat file generated from gem5. It extracts scalar stat entities such as (simulation runtime, number of instructions, hit/miss ratios for each cache level), and vector stat entities (eg. delay histograms for each CHI transaction) and plots them. 
 ```bash
 python3 helper/parse_stats.py
 ```
 
-### Konata Viewer
+#### Konata Viewer
 [Konata viewer](https://github.com/shioyadan/Konata) is an instruction pipeline visualizer for O3 cpu-type of GEM5. First, install [konata](https://github.com/shioyadan/Konata/releases/tag/v0.39). Then, you can generate konata-compatible traces from gem5 by using **O3PipeView** debug flags, forward the traces file to your host machine for inspection through the mounted shared directory /mnt/.
 ```bash
 # An O3 cpu type must be used 
