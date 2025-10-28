@@ -50,7 +50,7 @@ wget -O images/kernel/riscv-ubuntu-24.04-img https://gem5dist.blob.core.windows.
 ```
 You can get the images with the Gromacs build (along with its dependancies) for X86 and RISCV from the docker image (see [docker image](https://git.dare.megware.com/dmk/gem5_co_simulation#:~:text=Docker%20Image%20Directory%20Structure)).
 
-## 2. Using the Ready-made Docker Image
+## Using the Ready-made Docker Image
 All the sources, images, and artifects are contained within the docker image. Therefore, there is no need to reproduce the artifects yourself. 
 ```bash
 docker pull abdesattar/tau_gem5:latest
