@@ -38,57 +38,104 @@ from gem5.isas import ISA
 from gem5.components.cachehierarchies.chi.nodes.abstract_node import AbstractNode
 
 
+
 class PrivateL1MOESICache(AbstractNode):
-    def __init__(
-        self,
-        size: str,
-        assoc: int,
-        network: RubyNetwork,
-        core: AbstractCore,
-        cache_line_size,
-        target_isa: ISA,
-        clk_domain: ClockDomain,
-        prefetcher_, 
-    ):
+    """A private L1 cache with MOESI states"""
+
+    def __init__(self, config: dict):
+        """
+        Args:
+            config (dict): Configuration dictionary containing:
+                {
+                    "size": "32kB",
+                    "assoc": 8,
+                    "network": <RubyNetwork>,
+                    "core": <AbstractCore>,
+                    "cache_line_size": 64,
+                    "target_isa": <ISA>,
+                    "clk_domain": <ClockDomain>,
+                    "prefetcher": None or <Prefetcher>,
+                    "clusivity": {...},      # Allocation/deallocation policies
+                    "TBE_params": {...},
+                    "latencies": {...},      # Optional latencies
+                }
+        """
+
+        network = config["network"]
+        cache_line_size = config["cache_line_size"]
+        core = config["core"]
+        clk_domain = config["clk_domain"]
+
+
         super().__init__(network, cache_line_size)
 
+
+        # ---------- Cache ----------
         self.cache = RubyCache(
-            size=size, assoc=assoc, start_index_bit=self.getBlockSizeBits()
+            size=config["size"],
+            assoc=config["assoc"],
+            start_index_bit=self.getBlockSizeBits(),
         )
 
-        self.clk_domain = clk_domain
-        self.send_evictions = core.requires_send_evicts()
 
-        if(prefetcher_ is None):
+        # ---------- Clock domain ----------
+        self.clk_domain = clk_domain
+
+
+        # ---------- Prefetcher ----------
+        prefetcher_ = config.get("prefetcher", None)
+        if prefetcher_ is None:
             self.use_prefetcher = False
             self.prefetcher = NULL
         else:
             print("Use L1 prefetcher")
             self.use_prefetcher = True
-            self.prefetcher = prefetcher_    
+            self.prefetcher = prefetcher_
 
-        # Only applies to home nodes
+
+        # ---------- Core-specific flags ----------
+        self.send_evictions = core.requires_send_evicts()
+
+
+        # ---------- Home node flags ----------
         self.is_HN = False
         self.enable_DMT = False
         self.enable_DCT = False
 
-        # MOESI states for a 1 level cache
-        self.allow_SD = True
-        self.alloc_on_seq_acc = True
-        self.alloc_on_seq_line_write = False
-        self.alloc_on_readshared = True
-        self.alloc_on_readunique = True
-        self.alloc_on_readonce = True
-        self.alloc_on_writeback = False  # Should never happen in an L1
-        self.alloc_on_atomic = False
-        self.dealloc_on_unique = False
-        self.dealloc_on_shared = False
-        self.dealloc_backinv_unique = True
-        self.dealloc_backinv_shared = True
-        # Some reasonable default TBE params
-        self.number_of_TBEs = 16
-        self.number_of_repl_TBEs = 16
-        self.number_of_snoop_TBEs = 4
-        self.number_of_DVM_TBEs = 16
-        self.number_of_DVM_snoop_TBEs = 4
-        self.unify_repl_TBEs = False
+
+        # ---------- Clusivity configuration (MOESI states) ----------
+        clusivity = config.get("clusivity", {})
+        self.allow_SD = clusivity.get("allow_SD", True)
+        self.alloc_on_seq_acc = clusivity.get("alloc_on_seq_acc", True)
+        self.alloc_on_seq_line_write = clusivity.get("alloc_on_seq_line_write", False)
+        self.alloc_on_readshared = clusivity.get("alloc_on_readshared", True)
+        self.alloc_on_readunique = clusivity.get("alloc_on_readunique", True)
+        self.alloc_on_readonce = clusivity.get("alloc_on_readonce", True)
+        self.alloc_on_writeback = clusivity.get("alloc_on_writeback", False)
+        self.alloc_on_atomic = clusivity.get("alloc_on_atomic", False)
+        self.dealloc_on_unique = clusivity.get("dealloc_on_unique", False)
+        self.dealloc_on_shared = clusivity.get("dealloc_on_shared", False)
+        self.dealloc_backinv_unique = clusivity.get("dealloc_backinv_unique", True)
+        self.dealloc_backinv_shared = clusivity.get("dealloc_backinv_shared", True)
+
+
+        # ---------- TBE parameters ----------
+        tbe_cfg = config.get("TBE_params", {})
+        self.number_of_TBEs = tbe_cfg.get("number_of_TBEs", 16)
+        self.number_of_repl_TBEs = tbe_cfg.get("number_of_repl_TBEs", 16)
+        self.number_of_snoop_TBEs = tbe_cfg.get("number_of_snoop_TBEs", 4)
+        self.number_of_DVM_TBEs = tbe_cfg.get("number_of_DVM_TBEs", 16)
+        self.number_of_DVM_snoop_TBEs = tbe_cfg.get("number_of_DVM_snoop_TBEs", 4)
+        self.unify_repl_TBEs = tbe_cfg.get("unify_repl_TBEs", False)
+
+
+        # ---------- Latency configuration ----------
+        lat_cfg = config.get("latencies", {})
+        self.read_hit_latency = lat_cfg.get("read_hit", 12)
+        self.read_miss_latency = lat_cfg.get("read_miss", 14)
+        self.atomic_op_latency = lat_cfg.get("atomic_op", 12)
+        self.write_fe_latency = lat_cfg.get("write_fe", 12)
+        self.write_be_latency = lat_cfg.get("write_be", 12)
+        self.fill_latency = lat_cfg.get("fill", 12)
+        self.snp_latency = lat_cfg.get("snp", 12)
+        self.snp_inv_latency = lat_cfg.get("snp_inv", 12)

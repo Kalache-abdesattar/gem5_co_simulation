@@ -40,68 +40,103 @@ from m5.objects import (
 from gem5.components.cachehierarchies.chi.nodes.abstract_node import AbstractNode
 
 
+
 class SharedL3(AbstractNode):
     """A home node (HNF) with a shared cache"""
 
-    def __init__(
-        self,
-        size: str,
-        assoc: int,
-        network: RubyNetwork,
-        cache_line_size: int,
-    ):
+    def __init__(self, config: dict):
+        """
+        Args:
+            config (dict): Configuration dictionary containing:
+                {
+                    "size": "2MB",
+                    "assoc": 16,
+                    "network": <RubyNetwork>,
+                    "cache_line_size": 64,
+                    "replacement_policy": RRIPRP(),
+                    "clusivity": {
+                        "alloc_on_seq_acc": True,
+                        "alloc_on_seq_line_write": True,
+                        "alloc_on_readshared": True,
+                        "alloc_on_readunique": True,
+                        "alloc_on_readonce": True,
+                        "alloc_on_writeback": True,
+                        "alloc_on_atomic": True,
+                        "dealloc_on_unique": False,
+                        "dealloc_on_shared": False,
+                        "dealloc_backinv_unique": False,
+                        "dealloc_backinv_shared": False,
+                    },
+                    "latencies": {...},
+                    "TBE_params": {...},
+                }
+        """
+        network = config["network"]
+        cache_line_size = config["cache_line_size"]
+
         super().__init__(network, cache_line_size)
 
+        # Cache setup
         self.cache = RubyCache(
-            size=size,
-            assoc=assoc,
-            # Can choose any replacement policy
-            replacement_policy=RRIPRP(),
+            size=config["size"],
+            assoc=config["assoc"],
+            replacement_policy=config.get("replacement_policy", RRIPRP()),
         )
 
 
-        # Only used for L1 controllers
+        # General configuration
         self.send_evictions = False
         self.sequencer = NULL
-
-        # No prefetcher (home nodes don't support prefetchers right now)
         self.use_prefetcher = False
         self.prefetcher = NULL
 
-        # Set up home node that allows three hop protocols
+
+        # Home Node (HNF) flags
         self.is_HN = True
-        self.enable_DMT = False
-        self.enable_DCT = False
-        self.allow_SD = True
+        self.enable_DMT = config.get("enable_DMT", False)
+        self.enable_DCT = config.get("enable_DCT", False)
+        self.allow_SD = config.get("allow_SD", True)
 
 
-        # Some reasonable default TBE params
-        self.number_of_TBEs = 32
-        self.number_of_repl_TBEs = 32
-        self.number_of_snoop_TBEs = 1
-        self.number_of_DVM_TBEs = 1  # should not receive any dvm
-        self.number_of_DVM_snoop_TBEs = 1  # should not receive any dvm
-        self.unify_repl_TBEs = False
+        # ---------- TBE Configuration ----------
+        tbe_cfg = config.get("TBE_params", {})
+        self.number_of_TBEs = tbe_cfg.get("number_of_TBEs", 32)
+        self.number_of_repl_TBEs = tbe_cfg.get("number_of_repl_TBEs", 32)
+        self.number_of_snoop_TBEs = tbe_cfg.get("number_of_snoop_TBEs", 1)
+        self.number_of_DVM_TBEs = tbe_cfg.get("number_of_DVM_TBEs", 1)
+        self.number_of_DVM_snoop_TBEs = tbe_cfg.get("number_of_DVM_snoop_TBEs", 1)
+        self.unify_repl_TBEs = tbe_cfg.get("unify_repl_TBEs", False)
 
-        # MOESI / Mostly inclusive for shared / Exclusive for unique
-        self.alloc_on_seq_acc = True
-        self.alloc_on_seq_line_write = True
-        self.alloc_on_readshared = True
-        self.alloc_on_readunique = True
-        self.alloc_on_readonce = True
-        self.alloc_on_writeback = True
-        self.alloc_on_atomic = True
-        self.dealloc_on_unique = False
-        self.dealloc_on_shared = False
-        self.dealloc_backinv_unique = False
-        self.dealloc_backinv_shared = False
 
-        # Latencies 
-        self.read_hit_latency = 39
-        self.read_miss_latency = 41
-        self.atomic_op_latency = 39
-        self.write_fe_latency = 39  # Front-end: Rcv req -> Snd req
-        self.write_be_latency = 41  # Back-end: Rcv ack -> Snd data
-        self.fill_latency = 39
-        self.snp_latency = 39
-        self.snp_inv_latency = 39       
+        # ---------- Clusivity Configuration ----------
+        # Determines cache allocation/deallocation policy (inclusive/exclusive/mostly-inclusive)
+        clusivity = config.get("clusivity", {})
+
+
+        # Allocation policy (default = mostly inclusive)
+        self.alloc_on_seq_acc = clusivity.get("alloc_on_seq_acc", True)
+        self.alloc_on_seq_line_write = clusivity.get("alloc_on_seq_line_write", True)
+        self.alloc_on_readshared = clusivity.get("alloc_on_readshared", True)
+        self.alloc_on_readunique = clusivity.get("alloc_on_readunique", True)
+        self.alloc_on_readonce = clusivity.get("alloc_on_readonce", True)
+        self.alloc_on_writeback = clusivity.get("alloc_on_writeback", True)
+        self.alloc_on_atomic = clusivity.get("alloc_on_atomic", True)
+
+
+        # Deallocation behavior
+        self.dealloc_on_unique = clusivity.get("dealloc_on_unique", False)
+        self.dealloc_on_shared = clusivity.get("dealloc_on_shared", False)
+        self.dealloc_backinv_unique = clusivity.get("dealloc_backinv_unique", False)
+        self.dealloc_backinv_shared = clusivity.get("dealloc_backinv_shared", False)
+
+
+        # ---------- Latency Configuration ----------
+        lat_cfg = config.get("latencies", {})
+        self.read_hit_latency = lat_cfg.get("read_hit", 39)
+        self.read_miss_latency = lat_cfg.get("read_miss", 41)
+        self.atomic_op_latency = lat_cfg.get("atomic_op", 39)
+        self.write_fe_latency = lat_cfg.get("write_fe", 39)
+        self.write_be_latency = lat_cfg.get("write_be", 41)
+        self.fill_latency = lat_cfg.get("fill", 39)
+        self.snp_latency = lat_cfg.get("snp", 39)
+        self.snp_inv_latency = lat_cfg.get("snp_inv", 39)
