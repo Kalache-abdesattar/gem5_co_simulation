@@ -6,15 +6,16 @@ pip3 install -r requirements.txt
 
 ## X86: build .fast and .opt version
 
-#// scons build/X86_CHI/gem5.debug -j$(nproc)
-# scons build/X86_CHI/gem5.fast -j$(nproc)
-scons build/X86_CHI/gem5.opt -j$(nproc)
+#// scons build/X86_CHI/gem5.debug -j$(nproc) EXTRAS="$GEM5_EXTRAS"
+# scons build/X86_CHI/gem5.fast -j$(nproc) EXTRAS="$GEM5_EXTRAS"
+# scons build/X86_CHI/gem5.opt -j$(nproc) EXTRAS="$GEM5_EXTRAS"
 
 # ## same for RISCV
 
-# #// scons build/RISCV_CHI/gem5.debug -j$(nproc)
-# # scons build/RISCV_CHI/gem5.fast -j$(nproc)
-scons build/RISCV_CHI/gem5.opt -j$(nproc)
+# #// scons build/RISCV_CHI/gem5.debug -j$(nproc) EXTRAS="$GEM5_EXTRAS"
+# # scons build/RISCV_CHI/gem5.fast -j$(nproc) EXTRAS="$GEM5_EXTRAS"
+scons build/RISCV_CHI/gem5.opt -j$(nproc) EXTRAS="$GEM5_EXTRAS"
+
 
 echo "Build m5term..."
 cd util/term && make 
