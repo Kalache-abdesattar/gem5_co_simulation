@@ -43,15 +43,13 @@ from gem5.components.cachehierarchies.chi.nodes.abstract_node import AbstractNod
 class SharedL2(AbstractNode):
     """An L2 slice (mid-level cache)"""
 
-    def __init__(self, config: dict):
+    def __init__(self, network: RubyNetwork, cache_line_size: int, config: dict, prefetcher_):
         """
         Args:
             config (dict): Configuration dictionary containing:
                 {
                     "size": "512kB",
                     "assoc": 8,
-                    "network": <RubyNetwork>,
-                    "cache_line_size": 64,
                     "replacement_policy": RRIPRP(),
                     "prefetcher": None or <Prefetcher>,
                     "clusivity": {...},     # inclusive/exclusive config
@@ -62,9 +60,6 @@ class SharedL2(AbstractNode):
                     "allow_SD": True,
                 }
         """
-        network = config["network"]
-        cache_line_size = config["cache_line_size"]
-
 
         super().__init__(network, cache_line_size)
 
@@ -78,13 +73,12 @@ class SharedL2(AbstractNode):
 
 
         # ---------- Prefetcher ----------
-        prefetcher_ = config.get("prefetcher", None)
-        if prefetcher_ is None:
-            self.use_prefetcher = False
-            self.prefetcher = NULL
-        else:
+        if config.get("use_prefetcher"):
             self.use_prefetcher = True
             self.prefetcher = prefetcher_
+        else:
+            self.use_prefetcher = False
+            self.prefetcher = NULL
 
 
         # ---------- General Node Flags ----------

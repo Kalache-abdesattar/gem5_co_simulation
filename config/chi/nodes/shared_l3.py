@@ -44,15 +44,13 @@ from gem5.components.cachehierarchies.chi.nodes.abstract_node import AbstractNod
 class SharedL3(AbstractNode):
     """A home node (HNF) with a shared cache"""
 
-    def __init__(self, config: dict):
+    def __init__(self, network: RubyNetwork, cache_line_size: int, config: dict):
         """
         Args:
             config (dict): Configuration dictionary containing:
                 {
                     "size": "2MB",
                     "assoc": 16,
-                    "network": <RubyNetwork>,
-                    "cache_line_size": 64,
                     "replacement_policy": RRIPRP(),
                     "clusivity": {
                         "alloc_on_seq_acc": True,
@@ -71,8 +69,6 @@ class SharedL3(AbstractNode):
                     "TBE_params": {...},
                 }
         """
-        network = config["network"]
-        cache_line_size = config["cache_line_size"]
 
         super().__init__(network, cache_line_size)
 

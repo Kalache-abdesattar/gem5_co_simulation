@@ -41,17 +41,23 @@ from gem5.components.cachehierarchies.chi.nodes.abstract_node import AbstractNod
 
 class PrivateL1MOESICache(AbstractNode):
     """A private L1 cache with MOESI states"""
-
-    def __init__(self, config: dict):
+    def __init__(
+        self,
+        config: dict,
+        network: RubyNetwork,
+        core: AbstractCore,
+        cache_line_size,
+        target_isa: ISA,
+        clk_domain: ClockDomain,
+        prefetcher_, 
+    ):
         """
         Args:
             config (dict): Configuration dictionary containing:
                 {
                     "size": "32kB",
                     "assoc": 8,
-                    "network": <RubyNetwork>,
                     "core": <AbstractCore>,
-                    "cache_line_size": 64,
                     "target_isa": <ISA>,
                     "clk_domain": <ClockDomain>,
                     "prefetcher": None or <Prefetcher>,
@@ -61,14 +67,7 @@ class PrivateL1MOESICache(AbstractNode):
                 }
         """
 
-        network = config["network"]
-        cache_line_size = config["cache_line_size"]
-        core = config["core"]
-        clk_domain = config["clk_domain"]
-
-
         super().__init__(network, cache_line_size)
-
 
         # ---------- Cache ----------
         self.cache = RubyCache(
@@ -83,14 +82,12 @@ class PrivateL1MOESICache(AbstractNode):
 
 
         # ---------- Prefetcher ----------
-        prefetcher_ = config.get("prefetcher", None)
-        if prefetcher_ is None:
-            self.use_prefetcher = False
-            self.prefetcher = NULL
-        else:
-            print("Use L1 prefetcher")
+        if config.get("use_prefetcher"):
             self.use_prefetcher = True
             self.prefetcher = prefetcher_
+        else:
+            self.use_prefetcher = False
+            self.prefetcher = NULL
 
 
         # ---------- Core-specific flags ----------
@@ -131,11 +128,11 @@ class PrivateL1MOESICache(AbstractNode):
 
         # ---------- Latency configuration ----------
         lat_cfg = config.get("latencies", {})
-        self.read_hit_latency = lat_cfg.get("read_hit", 12)
-        self.read_miss_latency = lat_cfg.get("read_miss", 14)
-        self.atomic_op_latency = lat_cfg.get("atomic_op", 12)
-        self.write_fe_latency = lat_cfg.get("write_fe", 12)
-        self.write_be_latency = lat_cfg.get("write_be", 12)
-        self.fill_latency = lat_cfg.get("fill", 12)
-        self.snp_latency = lat_cfg.get("snp", 12)
-        self.snp_inv_latency = lat_cfg.get("snp_inv", 12)
+        self.read_hit_latency = lat_cfg.get("read_hit", 3)
+        self.read_miss_latency = lat_cfg.get("read_miss", 4)
+        self.atomic_op_latency = lat_cfg.get("atomic_op", 4)
+        self.write_fe_latency = lat_cfg.get("write_fe", 3)
+        self.write_be_latency = lat_cfg.get("write_be", 3)
+        self.fill_latency = lat_cfg.get("fill", 4)
+        self.snp_latency = lat_cfg.get("snp", 4)
+        self.snp_inv_latency = lat_cfg.get("snp_inv", 4)
