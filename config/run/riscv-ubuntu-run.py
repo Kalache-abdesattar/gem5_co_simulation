@@ -84,6 +84,8 @@ from gem5.simulate.simulator import Simulator
 from gem5.utils.requires import requires
 from gem5.components.processors.simple_switchable_processor import SimpleSwitchableProcessor
 
+import gem5.utils.multisim as multisim 
+
 
 
 
@@ -97,7 +99,7 @@ import os
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 CHECKPOINT_DEFAULT = os.path.join(BASE_DIR, "checkpoints", "riscv_ubuntu_checkpoint")
 DISK_IMAGE_DEFAULT = os.path.join(BASE_DIR, "images", "disk", "riscv-ubuntu-24.04-img")
-KERNEL_DEFAULT = os.path.join(BASE_DIR, "images", "kernel", "riscv-linux-5.15.180-kernel")
+KERNEL_DEFAULT = os.path.join(BASE_DIR, "images", "kernel", "riscv-linux-5.15.180")
 BOOTLOADER_DEFAULT = os.path.join(BASE_DIR, "images", "bootloader", "riscv-bootloader-opensbi-1.3.1")
 
 
@@ -149,56 +151,13 @@ args = parser.parse_args()
 
 
 # -------------------------------------------------------
-# Cache hierarchy setup
-# -------------------------------------------------------
-if args.cache_class == "no-cache":
-    from gem5.components.cachehierarchies.classic.no_cache import NoCache
-
-    cache_hierarchy = NoCache()
-elif args.cache_class == "chi":
-    # Custom CHI-based hierarchy
-    from config.chi.l3_cache_hierarchy import L3CacheHierarchy
-    
-    cache_hierarchy = L3CacheHierarchy(
-        l1_size="16KiB",
-        l1_assoc=8,
-        l2_size="1MiB",
-        l2_assoc=16,
-        l3_size="16MiB",
-        l3_assoc=32,
-        cores_per_cluster=args.cores_per_cluster,
-    )
-elif args.cache_class == "mesi-three-level": 
-    from gem5.components.cachehierarchies.ruby.mesi_three_level_cache_hierarchy import (
-            MESIThreeLevelCacheHierarchy,
-    )
-
-    cache_hierarchy = MESIThreeLevelCacheHierarchy(
-        l1i_size="32KiB",
-        l1i_assoc=8,
-        l1d_size="32KiB",
-        l1d_assoc=8,
-        l2_size="256KiB",
-        l2_assoc=4,
-        l3_size="16MiB",
-        l3_assoc=16,
-        num_l3_banks=1,
-    )
-else:
-    raise ValueError(f"The cache class {args.cache_class} is not supported.")
-
-
-
-# -------------------------------------------------------
 # Memory setup
 # -------------------------------------------------------
 memory = SingleChannelDDR3_1600(size=args.mem_size)
 # or: memory = DualChannelDDR4_2400(size="3GiB")
 
 
-# -------------------------------------------------------
-# Processor setup
-# -------------------------------------------------------
+
 # -------------------------------------------------------
 # Processor setup
 # -------------------------------------------------------
@@ -230,37 +189,6 @@ default_args = [
     "no_systemd=true",
     "interactive=true",
 ]
-
-
-# -------------------------------------------------------
-# Board setup
-# -------------------------------------------------------
-board = RiscvBoard(
-    clk_freq="3GHz",
-    processor=processor,
-    memory=memory,
-    cache_hierarchy=cache_hierarchy,
-    new_kernel_args=default_args,
-)
-
-# -------------------------------------------------------
-# Workload setup
-# -------------------------------------------------------
-board.set_kernel_disk_workload(
-    kernel=KernelResource(
-        args.kernel
-    ),
-
-    bootloader=BootloaderResource(
-        args.bootloader
-    ),
-
-    disk_image=DiskImageResource(
-        local_path=args.disk_image
-    ),
-
-    readfile_contents=(),
-)
 
 
 # -------------------------------------------------------
@@ -303,6 +231,89 @@ else:
         yield True
 
 
+# Add set_num_processes here
+# multisim.set_num_processes(2)
+
+
+import json 
+
+
+# -------------------------------------------------------
+# Cache hierarchy setup
+# -------------------------------------------------------
+if args.cache_class == "no-cache":
+    from gem5.components.cachehierarchies.classic.no_cache import NoCache
+
+    cache_hierarchy = NoCache()
+
+elif args.cache_class == "chi":
+
+    with open("config/chi/cache_config.json", "r") as f:
+        cache_config = json.load(f)
+
+    l1_config = cache_config["L1"]
+    l2_config = cache_config["L2"]
+    l3_config = cache_config["L3"]
+
+    # Custom CHI-based hierarchy
+    from config.chi.l3_cache_hierarchy import L3CacheHierarchy
+    
+    cache_hierarchy = L3CacheHierarchy(
+        l1_config=l1_config,
+        l2_config=l2_config,
+        l3_config=l3_config,
+        cores_per_cluster=args.cores_per_cluster,
+    )
+
+elif args.cache_class == "mesi-three-level": 
+    from gem5.components.cachehierarchies.ruby.mesi_three_level_cache_hierarchy import (
+            MESIThreeLevelCacheHierarchy,
+    )
+
+    cache_hierarchy = MESIThreeLevelCacheHierarchy(
+        l1i_size="32KiB",
+        l1i_assoc=8,
+        l1d_size="32KiB",
+        l1d_assoc=8,
+        l2_size="256KiB",
+        l2_assoc=4,
+        l3_size="16MiB",
+        l3_assoc=16,
+        num_l3_banks=1,
+    )
+else:
+    raise ValueError(f"The cache class {args.cache_class} is not supported.")
+
+
+# -------------------------------------------------------
+# Board setup
+# -------------------------------------------------------
+board = RiscvBoard(
+    clk_freq="3GHz",
+    processor=processor,
+    memory=memory,
+    cache_hierarchy=cache_hierarchy,
+    new_kernel_args=default_args,
+)
+
+# -------------------------------------------------------
+# Workload setup
+# -------------------------------------------------------
+board.set_kernel_disk_workload(
+    kernel=KernelResource(
+        args.kernel
+    ),
+
+    bootloader=BootloaderResource(
+        args.bootloader
+    ),
+
+    disk_image=DiskImageResource(
+        local_path=args.disk_image
+    ),
+
+    readfile_contents=(),
+)
 
 
 

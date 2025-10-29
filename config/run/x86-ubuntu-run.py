@@ -151,7 +151,7 @@ parser.add_argument("--checkpoint-path", type=str, default=CHECKPOINT_DEFAULT,
 
 args = parser.parse_args()
 
-
+import json 
 
 # -------------------------------------------------------
 # Cache hierarchy setup
@@ -160,19 +160,26 @@ if args.cache_class == "no-cache":
     from gem5.components.cachehierarchies.classic.no_cache import NoCache
 
     cache_hierarchy = NoCache()
+
 elif args.cache_class == "chi":
+
+    with open("config/chi/cache_config.json", "r") as f:
+        cache_config = json.load(f)
+
+    l1_config = cache_config["L1"]
+    l2_config = cache_config["L2"]
+    l3_config = cache_config["L3"]
+
     # Custom CHI-based hierarchy
     from config.chi.l3_cache_hierarchy import L3CacheHierarchy
     
     cache_hierarchy = L3CacheHierarchy(
-        l1_size="16KiB",
-        l1_assoc=8,
-        l2_size="1MiB",
-        l2_assoc=16,
-        l3_size="16MiB",
-        l3_assoc=32,
+        l1_config=l1_config,
+        l2_config=l2_config,
+        l3_config=l3_config,
         cores_per_cluster=args.cores_per_cluster,
     )
+
 elif args.cache_class == "mesi-three-level": 
     from gem5.components.cachehierarchies.ruby.mesi_three_level_cache_hierarchy import (
             MESIThreeLevelCacheHierarchy,
