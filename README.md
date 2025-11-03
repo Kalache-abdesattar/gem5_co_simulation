@@ -40,15 +40,30 @@ source env.sh
 Executing **env.sh** initializes submodules, installs dependancies, builds gem5 models, pulls the necessary bootloaders and kernel images from [gem5 resources](https://resources.gem5.org/).
 
 
-### 3. Getting the Disk Images
+### 3. Getting the Disk Images Ready
 You can download the latest disk images -gem5 v25 compatible- for RISCV, X86, and ARM from [gem5 resources](https://resources.gem5.org/). 
-Download the disk image to **images/disk/**. The disk images are empty, only containing gem5-related drivers and init scripts. 
+Download the disk image to **images/disk/**. The disk images are empty, containing only gem5-related drivers (gem5-bridge, m5) and init scripts. 
 
 ```bash
 # Example
 wget -O images/kernel/riscv-ubuntu-24.04-img https://gem5dist.blob.core.windows.net/dist/develop/images/riscv/ubuntu-24-04/riscv-ubuntu-24.04-20250515.gz
 ```
+
+To populate the disk image with an application of interest. You can cross compile the application or use **change root** with **user-level emulation**:
+
+```bash
+# first, make sure that user-level emulation (qemu-static) is installed
+sudo losetup -fP --show DISK-IMAGE   # sets up a loop device /dev/loopX for mount 
+sudo mount /dev/loopXpR DIR/         # R is the root partition (typically R=1 for gem5-resource disk images)
+sudo chroot DIR/ /bin/bash
+```
+Now, you can clone and compile your application natively, albeit, slower than cross compilation. 
+
 You can get the images with the Gromacs build (along with its dependancies) for X86 and RISCV from the docker image (see [docker image](https://git.dare.megware.com/dmk/gem5_co_simulation#:~:text=Docker%20Image%20Directory%20Structure)).
+
+### 4. Interacting With GEM5 Simulation Engine Through M5OPS
+Programs can interrupt GEM5 through M5OPS. M5OPS are illegal ISA-level instructions whose traps are handled by GEM5 -rather than the emulated environment-. GEM5 ships with naked C functions for M5OPS (eg. m5_exit(time)). The declarations of these functions 
+can be found under m5/gem5/gem5.h of this repo. The functions are defined in a static library termed libm5.a that can be found under m5/ (for both riscv and x86). Hence, include the gem5 headers and link you application-of-interest's executable against libm5.a. 
 
 ## Using the Ready-made Docker Image
 All the sources, images, and artifects are contained within the docker image. Therefore, there is no need to reproduce the artifects yourself. 
