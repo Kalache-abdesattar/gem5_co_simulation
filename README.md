@@ -63,7 +63,8 @@ You can get the images with the Gromacs build (along with its dependancies) for 
 
 ### 4. Interacting With GEM5 Simulation Engine Through M5OPS
 Programs can interrupt GEM5 through M5OPS. M5OPS are illegal ISA-level instructions whose traps are handled by GEM5 -rather than the emulated environment-. GEM5 ships with naked C functions for M5OPS (eg. m5_exit(time)). The declarations of these functions 
-can be found under m5/gem5/gem5.h of this repo. The functions are defined in a static library termed libm5.a that can be found under m5/ (for both riscv and x86). Hence, include the gem5 headers and link you application-of-interest's executable against libm5.a. 
+can be found under m5/include/gem5/gem5.h of this repo. The functions are defined in a static library termed libm5.a that can be found under m5/ (for both riscv and x86). Hence, include the gem5 headers and link you application-of-interest's executable against libm5.a. 
+
 
 ## Using the Ready-made Docker Image
 All the sources, images, and artifects are contained within the docker image. Therefore, there is no need to reproduce the artifects yourself. 
