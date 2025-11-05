@@ -81,6 +81,9 @@ from gem5.utils.requires import requires
 from gem5.components.processors.simple_switchable_processor import SimpleSwitchableProcessor
 
 
+import json 
+import gem5.utils.multisim as multisim  
+
 
 # Verify ISA
 # We check for the required gem5 build.
@@ -113,10 +116,19 @@ benchmark_choices = [
 size_choices = ["simsmall", "simmedium", "simlarge"]
 
 
+import os 
+
+
+# PATHS
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+
+JSON_CONFIG_DEFAULT = os.path.join(BASE_DIR, "config/chi/json_configs/")
+
 # -------------------------------------------------------
 # Argument parsing
 # -------------------------------------------------------
-parser = argparse.ArgumentParser(description="Run RISCV Ubuntu FS simulation with CHI cache hierarchy")
+parser = argparse.ArgumentParser(description="")
+
 parser.add_argument("--num-cores", type=int, default=4, help="Total number of cores")
 parser.add_argument("--cores-per-cluster", type=int, default=1, help="Cores per CHI cluster, a cluster is the group of cores sharing an L2")
 parser.add_argument(
@@ -148,8 +160,78 @@ parser.add_argument(
     choices=size_choices,
 )
 
+parser.add_argument("--config-path", type=str, default=JSON_CONFIG_DEFAULT,
+                    help="Path to the checkpoint directory")
+
+
 args = parser.parse_args()
 
+
+
+# -------------------------------------------------------
+# Memory setup
+# -------------------------------------------------------
+memory = SingleChannelDDR3_1600(size=args.mem_size)
+# or: memory = DualChannelDDR4_2400(size="3GiB")
+
+
+# -------------------------------------------------------
+# Processor setup
+# -------------------------------------------------------
+processor = SimpleSwitchableProcessor(
+    starting_core_type=CPUTypes.KVM,
+    switch_core_type=CPUTypes.O3,
+    isa=ISA.X86,
+    num_cores=args.num_cores,
+)
+
+
+# -------------------------------------------------------
+# Default kernel arguments
+# ---------------------------------------------------+----
+default_args = [
+    "earlyprintk=ttyS0",
+    "console=ttyS0",
+    "lpj=7999923",
+    "root={root_value}",
+    "disk_device={disk_device}",
+]
+
+
+# -------------------------------------------------------
+# Exit event handler
+# -------------------------------------------------------
+
+# functions to handle different exit events during the simuation
+def handle_workbegin():
+    print("Done booting Linux")
+    print("Resetting stats at the start of ROI!")
+    m5.stats.reset()
+
+    processor.switch()
+
+    yield False
+
+
+def handle_workend():
+    print("Dump stats at the end of the ROI!")
+    m5.stats.dump()
+    yield True
+
+
+# workload command to first execute when the kernel boots 
+command = (
+    f"cd /home/gem5/parsec-benchmark;"
+    + "source env.sh;"
+    + "m5 resetstats;"
+    + f"parsecmgmt -a run -p {args.benchmark} -c gcc-hooks -i {args.size}         -n 2;"
+    + "sleep 5;"
+    + "m5 exit;"
+)
+
+
+
+# multisim.set_num_processes(2)
 
 
 # -------------------------------------------------------
@@ -160,18 +242,23 @@ if args.cache_class == "no-cache":
 
     cache_hierarchy = NoCache()
 elif args.cache_class == "chi":
+    with open(args.config_path, "r") as f:
+        cache_config = json.load(f)
+
+    l1_config = cache_config["L1"]
+    l2_config = cache_config["L2"]
+    l3_config = cache_config["L3"]
+
     # Custom CHI-based hierarchy
     from config.chi.l3_cache_hierarchy import L3CacheHierarchy
     
     cache_hierarchy = L3CacheHierarchy(
-        l1_size="16KiB",
-        l1_assoc=8,
-        l2_size="1MiB",
-        l2_assoc=16,
-        l3_size="16MiB",
-        l3_assoc=32,
+        l1_config=l1_config,
+        l2_config=l2_config,
+        l3_config=l3_config,
         cores_per_cluster=args.cores_per_cluster,
     )
+
 elif args.cache_class == "mesi-three-level": 
     from gem5.components.cachehierarchies.ruby.mesi_three_level_cache_hierarchy import (
             MESIThreeLevelCacheHierarchy,
@@ -190,38 +277,6 @@ elif args.cache_class == "mesi-three-level":
     )
 else:
     raise ValueError(f"The cache class {args.cache_class} is not supported.")
-
-
-
-# -------------------------------------------------------
-# Memory setup
-# -------------------------------------------------------
-memory = SingleChannelDDR3_1600(size=args.mem_size)
-# or: memory = DualChannelDDR4_2400(size="3GiB")
-
-
-# -------------------------------------------------------
-# Processor setup
-# -------------------------------------------------------
-processor = SimpleSwitchableProcessor(
-    starting_core_type=CPUTypes.KVM,
-    switch_core_type=CPUTypes.TIMING,
-    isa=ISA.X86,
-    num_cores=args.num_cores,
-)
-
-
-# -------------------------------------------------------
-# Default kernel arguments
-# ---------------------------------------------------+----
-default_args = [
-    "earlyprintk=ttyS0",
-    "console=ttyS0",
-    "lpj=7999923",
-    "root={root_value}",
-    "disk_device={disk_device}",
-]
-
 
 # -------------------------------------------------------
 # Board setup
@@ -247,16 +302,6 @@ board = X86Board(
 # properly.
 
 
-command = (
-    f"cd /home/gem5/parsec-benchmark;"
-    + "source env.sh;"
-    + f"parsecmgmt -a run -p {args.benchmark} -c gcc-hooks -i {args.size}         -n 2;"
-    + "sleep 5;"
-    + "m5 exit;"
-)
-
-
-
 # obtain_resource methods download the images automatically from gem5_resource server
 # the resources are downloaded by default 
 board.set_kernel_disk_workload(
@@ -268,30 +313,6 @@ board.set_kernel_disk_workload(
 
     readfile_contents=command,
 )
-
-
-
-# -------------------------------------------------------
-# Exit event handler
-# -------------------------------------------------------
-
-# functions to handle different exit events during the simuation
-def handle_workbegin():
-    print("Done booting Linux")
-    print("Resetting stats at the start of ROI!")
-    m5.stats.reset()
-
-    processor.switch()
-
-    yield False
-
-
-def handle_workend():
-    print("Dump stats at the end of the ROI!")
-    m5.stats.dump()
-    yield True
-
-
 
 
 # -------------------------------------------------------
@@ -306,6 +327,7 @@ simulator = Simulator(
         ExitEvent.WORKEND: handle_workend(),
     },
 )
+
 
 
 # We maintain the wall clock time.
@@ -335,7 +357,7 @@ print(
 print(
     "Total wallclock time: %.2fs, %.2f min"
     % (time.time() - globalStart, (time.time() - globalStart) / 60)
-)
+    )
 
 
 

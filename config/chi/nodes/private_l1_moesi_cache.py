@@ -49,7 +49,8 @@ class PrivateL1MOESICache(AbstractNode):
         cache_line_size,
         target_isa: ISA,
         clk_domain: ClockDomain,
-        prefetcher_, 
+        prefetcher_,
+        sc_lock_enabled_,
     ):
         """
         Args:
@@ -80,6 +81,10 @@ class PrivateL1MOESICache(AbstractNode):
         # ---------- Clock domain ----------
         self.clk_domain = clk_domain
 
+        # This should be set to true in the data cache controller to enable
+        # timeouts on unique lines when a store conditional fails
+        self.sc_lock_enabled = sc_lock_enabled_
+        print(f"SC LOCKED? {self.sc_lock_enabled}")
 
         # ---------- Prefetcher ----------
         if config.get("use_prefetcher"):

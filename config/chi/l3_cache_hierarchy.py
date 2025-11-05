@@ -256,7 +256,8 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
             cache_line_size=board.get_cache_line_size(),
             target_isa=board.get_processor().get_isa(),
             clk_domain=board.get_clock_domain(),
-            prefetcher_=l1_prefetchers[core_num].get("L1d")
+            prefetcher_=l1_prefetchers[core_num].get("L1d"),
+            sc_lock_enabled_=True
         )
         cluster.icache = PrivateL1MOESICache(
             config=self._l1_config,
@@ -265,7 +266,8 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
             cache_line_size=board.get_cache_line_size(),
             target_isa=board.get_processor().get_isa(),
             clk_domain=board.get_clock_domain(),
-            prefetcher_=l1_prefetchers[core_num].get("L1i")
+            prefetcher_=l1_prefetchers[core_num].get("L1i"),
+            sc_lock_enabled_=False
         )
 
         # The sequencers are used to connect the core to the cache

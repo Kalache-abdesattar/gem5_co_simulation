@@ -105,6 +105,7 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 CHECKPOINT_DEFAULT = os.path.join(BASE_DIR, "checkpoints", "riscv_ubuntu_checkpoint")
 DISK_IMAGE_DEFAULT = os.path.join(BASE_DIR, "images", "disk", "x86-ubuntu-22.04-img")
 KERNEL_DEFAULT = os.path.join(BASE_DIR, "images", "kernel", "x86-linux-6.8.0-52")
+JSON_CONFIG_DEFAULT = os.path.join(BASE_DIR, "config/chi/cache_config.json")
 
 
 # -------------------------------------------------------
@@ -147,6 +148,8 @@ parser.add_argument("--load-checkpoint", action="store_true",
                     help="Load from an existing checkpoint instead of booting fresh")
 parser.add_argument("--checkpoint-path", type=str, default=CHECKPOINT_DEFAULT,
                     help="Path to the checkpoint directory")
+parser.add_argument("--config-path", type=str, default=JSON_CONFIG_DEFAULT,
+                    help="Path to the checkpoint directory")
 
 
 args = parser.parse_args()
@@ -163,7 +166,7 @@ if args.cache_class == "no-cache":
 
 elif args.cache_class == "chi":
 
-    with open("config/chi/cache_config.json", "r") as f:
+    with open(args.config_path, "r") as f:
         cache_config = json.load(f)
 
     l1_config = cache_config["L1"]

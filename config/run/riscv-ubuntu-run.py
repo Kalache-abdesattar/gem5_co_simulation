@@ -101,6 +101,7 @@ CHECKPOINT_DEFAULT = os.path.join(BASE_DIR, "checkpoints", "riscv_ubuntu_checkpo
 DISK_IMAGE_DEFAULT = os.path.join(BASE_DIR, "images", "disk", "riscv-ubuntu-24.04-img")
 KERNEL_DEFAULT = os.path.join(BASE_DIR, "images", "kernel", "riscv-linux-5.15.180")
 BOOTLOADER_DEFAULT = os.path.join(BASE_DIR, "images", "bootloader", "riscv-bootloader-opensbi-1.3.1")
+JSON_CONFIG_DEFAULT = os.path.join(BASE_DIR, "config/chi/")
 
 
 
@@ -144,6 +145,9 @@ parser.add_argument("--save-checkpoint", action="store_true",
 parser.add_argument("--load-checkpoint", action="store_true",
                     help="Load from an existing checkpoint instead of booting fresh")
 parser.add_argument("--checkpoint-path", type=str, default=CHECKPOINT_DEFAULT,
+                    help="Path to the checkpoint directory")
+
+parser.add_argument("--config-dir", type=str, default=JSON_CONFIG_DEFAULT,
                     help="Path to the checkpoint directory")
 
 args = parser.parse_args()
@@ -206,6 +210,15 @@ if args.load_checkpoint:
         yield False
         
         print("Third exit: Final Exit")
+        
+        yield False
+
+        print("Third exit: Final Exit")
+        
+        yield False
+
+
+        print("Third exit: Final Exit")
         yield True
 
 else:
@@ -248,7 +261,7 @@ if args.cache_class == "no-cache":
 
 elif args.cache_class == "chi":
 
-    with open("config/chi/cache_config.json", "r") as f:
+    with open(args.config_dir + "/prefetch_off.json", "r") as f:
         cache_config = json.load(f)
 
     l1_config = cache_config["L1"]
