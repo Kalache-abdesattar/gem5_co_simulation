@@ -1,10 +1,10 @@
 # prepare gem5 repository and build RISCV and X86 models 
+export GEM5_EXTRAS=$(pwd)/config/
+
 git submodule update --init --recursive
 cd gem5/
 
 pip3 install -r requirements.txt
-
-export GEM5_EXTRAS=$(pwd)/config/
 
 ## X86: build .fast and .opt version
 
