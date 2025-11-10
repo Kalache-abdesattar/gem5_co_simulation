@@ -257,7 +257,7 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
             target_isa=board.get_processor().get_isa(),
             clk_domain=board.get_clock_domain(),
             prefetcher_=l1_prefetchers[core_num].get("L1d"),
-            sc_lock_enabled_=True
+            sc_lock_enabled_=False
         )
         cluster.icache = PrivateL1MOESICache(
             config=self._l1_config,
