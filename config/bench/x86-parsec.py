@@ -193,8 +193,8 @@ default_args = [
     "earlyprintk=ttyS0",
     "console=ttyS0",
     "lpj=7999923",
-    "root={root_value}",
-    "disk_device={disk_device}",
+    "root=/dev/hda1",
+    "disk_device=/dev/hda",
 ]
 
 
@@ -309,7 +309,8 @@ board.set_kernel_disk_workload(
         "x86-linux-kernel-4.19.83", resource_version="1.0.0"
     ),
 
-    disk_image=obtain_resource("x86-parsec", resource_version="1.0.0"),
+    disk_image=DiskImageResource(local_path="/mnt/x86-parsec"),
+    #obtain_resource("x86-parsec", resource_version="1.0.0"),
 
     readfile_contents=command,
 )
