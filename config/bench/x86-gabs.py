@@ -311,7 +311,7 @@ board.set_kernel_disk_workload(
         "x86-linux-kernel-4.19.83", resource_version="1.0.0"
     ),
 
-    disk_image=DiskImageResource(local_path="/mnt/x86-ubuntu-gab"),
+    disk_image=DiskImageResource(local_path="/mnt/x86-gabps"),
     #disk_image=obtain_resource("x86-parsec", resource_version="1.0.0"),
 
     #readfile_contents=command,

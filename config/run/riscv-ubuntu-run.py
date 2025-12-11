@@ -261,7 +261,7 @@ if args.cache_class == "no-cache":
 
 elif args.cache_class == "chi":
 
-    with open(args.config_dir + "/prefetch_off.json", "r") as f:
+    with open(args.config_dir, "r") as f:
         cache_config = json.load(f)
 
     l1_config = cache_config["L1"]
