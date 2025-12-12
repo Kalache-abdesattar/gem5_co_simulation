@@ -79,6 +79,7 @@ class SharedL3(AbstractNode):
             replacement_policy=config.get("replacement_policy", RRIPRP()),
         )
 
+        print(type(config["size"]))
 
         # General configuration
         self.send_evictions = False
@@ -128,11 +129,11 @@ class SharedL3(AbstractNode):
 
         # ---------- Latency Configuration ----------
         lat_cfg = config.get("latencies", {})
-        self.read_hit_latency = lat_cfg.get("read_hit", 39)
-        self.read_miss_latency = lat_cfg.get("read_miss", 41)
-        self.atomic_op_latency = lat_cfg.get("atomic_op", 39)
-        self.write_fe_latency = lat_cfg.get("write_fe", 39)
-        self.write_be_latency = lat_cfg.get("write_be", 41)
-        self.fill_latency = lat_cfg.get("fill", 39)
-        self.snp_latency = lat_cfg.get("snp", 39)
-        self.snp_inv_latency = lat_cfg.get("snp_inv", 39)
+        self.read_hit_latency = lat_cfg.get("read_hit_latency", 39)
+        self.read_miss_latency = lat_cfg.get("read_miss_latency", 41)
+        self.atomic_op_latency = lat_cfg.get("atomic_op_latency", 39)
+        self.write_fe_latency = lat_cfg.get("write_fe_latency", 39)
+        self.write_be_latency = lat_cfg.get("write_be_latency", 41)
+        self.fill_latency = lat_cfg.get("fill_latency", 39)
+        self.snp_latency = lat_cfg.get("snp_latency", 39)
+        self.snp_inv_latency = lat_cfg.get("snp_inv_latency", 39)

@@ -66,8 +66,8 @@ class SimpleDirectory(AbstractNode):
 
         # Set up home node that allows three hop protocols
         self.is_HN = True
-        self.enable_DMT = True
-        self.enable_DCT = True
+        self.enable_DMT = False
+        self.enable_DCT = False
 
         # "Owned state"
         self.allow_SD = True

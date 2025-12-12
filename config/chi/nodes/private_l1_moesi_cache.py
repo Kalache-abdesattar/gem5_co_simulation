@@ -83,16 +83,16 @@ class PrivateL1MOESICache(AbstractNode):
 
         # This should be set to true in the data cache controller to enable
         # timeouts on unique lines when a store conditional fails
-        self.sc_lock_enabled = sc_lock_enabled_
-        print(f"SC LOCKED? {self.sc_lock_enabled}")
+        # self.sc_lock_enabled = sc_lock_enabled_
+        # print(f"SC LOCKED? {self.sc_lock_enabled}")
 
         # ---------- Prefetcher ----------
-        if config.get("use_prefetcher"):
-            self.use_prefetcher = True
-            self.prefetcher = prefetcher_
-        else:
-            self.use_prefetcher = False
-            self.prefetcher = NULL
+        # if config.get("use_prefetcher"):
+        #     self.use_prefetcher = True
+        #     self.prefetcher = prefetcher_
+        # else:
+        self.use_prefetcher = False
+        self.prefetcher = NULL
 
 
         # ---------- Core-specific flags ----------
@@ -133,11 +133,11 @@ class PrivateL1MOESICache(AbstractNode):
 
         # ---------- Latency configuration ----------
         lat_cfg = config.get("latencies", {})
-        self.read_hit_latency = lat_cfg.get("read_hit", 3)
-        self.read_miss_latency = lat_cfg.get("read_miss", 4)
-        self.atomic_op_latency = lat_cfg.get("atomic_op", 4)
-        self.write_fe_latency = lat_cfg.get("write_fe", 3)
-        self.write_be_latency = lat_cfg.get("write_be", 3)
-        self.fill_latency = lat_cfg.get("fill", 4)
-        self.snp_latency = lat_cfg.get("snp", 4)
-        self.snp_inv_latency = lat_cfg.get("snp_inv", 4)
+        self.read_hit_latency = lat_cfg.get("read_hit_latency", 3)
+        self.read_miss_latency = lat_cfg.get("read_miss_latency", 4)
+        self.atomic_op_latency = lat_cfg.get("atomic_op_latency", 4)
+        self.write_fe_latency = lat_cfg.get("write_fe_latency", 3)
+        self.write_be_latency = lat_cfg.get("write_be_latency", 3)
+        self.fill_latency = lat_cfg.get("fill_latency", 4)
+        self.snp_latency = lat_cfg.get("snp_latency", 4)
+        self.snp_inv_latency = lat_cfg.get("snp_inv_latency", 4)

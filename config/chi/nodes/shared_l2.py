@@ -73,12 +73,12 @@ class SharedL2(AbstractNode):
 
 
         # ---------- Prefetcher ----------
-        if config.get("use_prefetcher"):
-            self.use_prefetcher = True
-            self.prefetcher = prefetcher_
-        else:
-            self.use_prefetcher = False
-            self.prefetcher = NULL
+        # if config.get("use_prefetcher"):
+        #     self.use_prefetcher = True
+        #     self.prefetcher = prefetcher_
+        # else:
+        self.use_prefetcher = False
+        self.prefetcher = NULL
 
 
         # ---------- General Node Flags ----------
@@ -124,11 +124,11 @@ class SharedL2(AbstractNode):
 
         # ---------- Latency Configuration ----------
         lat_cfg = config.get("latencies", {})
-        self.read_hit_latency = lat_cfg.get("read_hit", 12)
-        self.read_miss_latency = lat_cfg.get("read_miss", 14)
-        self.atomic_op_latency = lat_cfg.get("atomic_op", 12)
-        self.write_fe_latency = lat_cfg.get("write_fe", 12)
-        self.write_be_latency = lat_cfg.get("write_be", 12)
-        self.fill_latency = lat_cfg.get("fill", 12)
-        self.snp_latency = lat_cfg.get("snp", 12)
-        self.snp_inv_latency = lat_cfg.get("snp_inv", 12)
+        self.read_hit_latency = lat_cfg.get("read_hit_latency", 12)
+        self.read_miss_latency = lat_cfg.get("read_miss_latency", 14)
+        self.atomic_op_latency = lat_cfg.get("atomic_op_latency", 12)
+        self.write_fe_latency = lat_cfg.get("write_fe_latency", 12)
+        self.write_be_latency = lat_cfg.get("write_be_latency", 12)
+        self.fill_latency = lat_cfg.get("fill_latency", 12)
+        self.snp_latency = lat_cfg.get("snp_latency", 12)
+        self.snp_inv_latency = lat_cfg.get("snp_inv_latency", 12)
