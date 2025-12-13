@@ -148,40 +148,40 @@ class Chiplet(AbstractRubyCacheHierarchy):
         self.memory_controllers = self._create_memory_controllers(board)
 
         # Construct a HN-F Standalone Directory within the NoC
-        # hn_directory = SimpleDirectory(
-        #     network=self.ruby_system.network,
-        #     cache_line_size=board.get_cache_line_size(),
-        #     clk_domain=board.get_clock_domain())
-        # hn_directory.ruby_system = self.ruby_system
-        # hn_directory.downstream_destinations = self.memory_controllers
+        hn_directory = SimpleDirectory(
+            network=self.ruby_system.network,
+            cache_line_size=board.get_cache_line_size(),
+            clk_domain=board.get_clock_domain())
+        hn_directory.ruby_system = self.ruby_system
+        hn_directory.downstream_destinations = self.memory_controllers
         
         l3_caches = []
         # Create multiple per-chiplet-private L3s
         for i in range(num_chiplets):
-            if i != num_chiplets-1:
-                l3_cache = PrivateL3(
-                    config=self._l3_config,
-                    network=self.ruby_system.network,
-                    cache_line_size=board.get_cache_line_size()
-                )
-            else:
-                l3_cache = SharedL3(
-                    config=self._l3_config,
-                    network=self.ruby_system.network,
-                    cache_line_size=board.get_cache_line_size()
-                ) 
+            # if i != num_chiplets-1:
+            l3_cache = PrivateL3(
+                config=self._l3_config,
+                network=self.ruby_system.network,
+                cache_line_size=board.get_cache_line_size()
+            )
+            # else:
+            #     l3_cache = SharedL3(
+            #         config=self._l3_config,
+            #         network=self.ruby_system.network,
+            #         cache_line_size=board.get_cache_line_size()
+            #     ) 
 
             l3_caches.append(l3_cache)
             l3_caches[i].ruby_system = self.ruby_system
-            l3_caches[i].downstream_destinations = self.memory_controllers #+ [hn_directory]
+            l3_caches[i].downstream_destinations = [hn_directory] #+ self.memory_controllers
 
         
-        num_l2_caches = num_cores // self._cores_per_cluster 
+        num_l2_caches_per_chipet = num_cores // self._cores_per_cluster // num_chiplets
         l2_caches = [[] for _ in range(num_chiplets)]
         l2_prefetchers = [[] for _ in range(num_chiplets)]
         
         for c in range(num_chiplets):
-            for i in range(num_l2_caches): 
+            for i in range(num_l2_caches_per_chipet): 
                 # Create l2_prefetchers objects to be passed to the L2 objects
                 l2_prefetcher = BOPPrefetcher(latency=1, cache_snoop=False)
                 l2_prefetchers[c].append(l2_prefetcher)
@@ -235,7 +235,10 @@ class Chiplet(AbstractRubyCacheHierarchy):
         # makes assumptions on the order of the controllers. If you want to
         # use more complex topologies like mesh it would be a good idea to
         # tightly couple the network with the cache hierarchy.
-        controllers = list(chain.from_iterable([(cluster.dcache, cluster.icache) for cluster in self.core_clusters])) + list(chain.from_iterable(l2_caches)) + l3_caches + self.memory_controllers + dma_controllers
+        print("The length of L2 CACHE controllers : " + str(len(l2_caches)))
+        print("The length of L2 CACHE controllers : " + str(len(l2_caches[0])))
+
+        controllers = list(chain.from_iterable([(cluster.dcache, cluster.icache) for cluster in self.core_clusters])) + list(chain.from_iterable(l2_caches)) + l3_caches + [hn_directory] + self.memory_controllers + dma_controllers
         
         self.ruby_system.network.connectControllers(controllers)
 

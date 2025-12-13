@@ -108,22 +108,22 @@ class ChiGlobalNoC(SimpleNetwork):
         
         hn_directory = l3_idx + num_chiplets
 
-        mem_ctrl_idx = hn_directory
+        mem_ctrl_idx = hn_directory + 1
 
         for c in range(num_chiplets):
-            # L3  ↔ MemCtrl 
+            # L3  ↔ HN Directory 
             link_count += 1
-            int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l3_idx+c], dst_node=self.routers[mem_ctrl_idx]))
+            int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l3_idx+c], dst_node=self.routers[hn_directory]))
 
             link_count += 1
-            int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[mem_ctrl_idx], dst_node=self.routers[l3_idx+c]))
+            int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[hn_directory], dst_node=self.routers[l3_idx+c]))
 
-            # L3  ↔ HN Directory
-            # link_count += 1
-            # int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l3_idx+c], dst_node=self.routers[hn_directory]))
+        # MemCtrl  ↔ HN Directory
+        link_count += 1
+        int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[mem_ctrl_idx], dst_node=self.routers[hn_directory]))
 
-            # link_count += 1
-            # int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[hn_directory], dst_node=self.routers[l3_idx+c]))
+        link_count += 1
+        int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[hn_directory], dst_node=self.routers[mem_ctrl_idx]))
 
     
         if self._has_dma_ports: 
@@ -149,6 +149,10 @@ class ChiGlobalNoC(SimpleNetwork):
             int_links.append(SimpleIntLink(link_id=link_count,
                                         src_node=self.routers[l3_idx],
                                         dst_node=self.routers[dma1_idx]))
+
+
+        print("The length of controllers : " + str(len(controllers)))
+        print("HN DIRECTORY INDEX : " + str(hn_directory))
 
 
         self.int_links = int_links
