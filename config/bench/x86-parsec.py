@@ -81,9 +81,6 @@ from gem5.utils.requires import requires
 from gem5.components.processors.simple_switchable_processor import SimpleSwitchableProcessor
 
 
-import json 
-import gem5.utils.multisim as multisim  
-
 
 # Verify ISA
 # We check for the required gem5 build.
@@ -91,6 +88,127 @@ requires(
     isa_required=ISA.X86,
     kvm_required=True,
 )
+
+
+
+l1_config = {
+    "size": "64KiB",
+    "assoc": 4,
+    "latencies": {
+        "read_hit_latency": 3,
+        "read_miss_latency": 4,
+        "atomic_op_latency": 5,
+        "write_fe_latency": 3,
+        "write_be_latency": 3,
+        "fill_latency": 4,
+        "snp_latency": 4,
+        "snp_inv_latency": 4,
+    },
+    "TBE_params": {
+        "number_of_TBEs": 16,
+        "number_of_repl_TBEs": 16,
+        "number_of_snoop_TBEs": 4,
+        "number_of_DVM_TBEs": 16,
+        "number_of_DVM_snoop_TBEs": 4,
+        "unify_repl_TBEs": False,
+    },
+    "allow_SD": False,
+    "prefetcher": None,
+    "use_prefetcher": False,
+    "clusivity": {
+        "alloc_on_seq_acc": True,
+        "alloc_on_seq_line_write": False,
+        "alloc_on_readshared": True,
+        "alloc_on_readunique": True,
+        "alloc_on_readonce": True,
+        "alloc_on_writeback": False,
+        "alloc_on_atomic": False,
+        "dealloc_on_unique": False,
+        "dealloc_on_shared": False,
+        "dealloc_backinv_unique": True,
+        "dealloc_backinv_shared": True,
+    },
+}
+
+
+l2_config = {
+    "size": "512KiB",
+    "assoc": 8,
+    "latencies": {
+        "read_hit_latency": 12,
+        "read_miss_latency": 13,
+        "atomic_op_latency": 14,
+        "write_fe_latency": 12,
+        "write_be_latency": 10,
+        "fill_latency": 12,
+        "snp_latency": 12,
+        "snp_inv_latency": 12,
+    },
+    "TBE_params": {
+        "number_of_TBEs": 32,
+        "number_of_repl_TBEs": 32,
+        "number_of_snoop_TBEs": 1,
+        "number_of_DVM_TBEs": 1,
+        "number_of_DVM_snoop_TBEs": 1,
+        "unify_repl_TBEs": False,
+    },
+    "allow_SD": False,
+    "prefetcher": None,
+    "use_prefetcher": False,
+    "clusivity": {
+        "alloc_on_seq_acc": True,
+        "alloc_on_seq_line_write": True,
+        "alloc_on_readshared": True,
+        "alloc_on_readunique": True,
+        "alloc_on_readonce": True,
+        "alloc_on_writeback": True,
+        "alloc_on_atomic": True,
+        "dealloc_on_unique": False,
+        "dealloc_on_shared": False,
+        "dealloc_backinv_unique": True,
+        "dealloc_backinv_shared": True,
+    },
+}
+
+
+l3_config = {
+    "size": "16MiB",
+    "assoc": 8,
+    "latencies": {
+        "read_hit_latency": 24,
+        "read_miss_latency": 25,
+        "atomic_op_latency": 27,
+        "write_fe_latency": 24,
+        "write_be_latency": 24,
+        "fill_latency": 24,
+        "snp_latency": 24,
+        "snp_inv_latency": 24,
+    },
+    "TBE_params": {
+        "number_of_TBEs": 32,
+        "number_of_repl_TBEs": 32,
+        "number_of_snoop_TBEs": 1,
+        "number_of_DVM_TBEs": 1,
+        "number_of_DVM_snoop_TBEs": 1,
+        "unify_repl_TBEs": False,
+    },
+    "prefetcher": None,
+    "allow_SD": False,
+    "use_prefetcher": False,
+    "clusivity": {
+        "alloc_on_seq_acc": True,
+        "alloc_on_seq_line_write": True,
+        "alloc_on_readshared": True,
+        "alloc_on_readunique": True,
+        "alloc_on_readonce": True,
+        "alloc_on_writeback": True,
+        "alloc_on_atomic": True,
+        "dealloc_on_unique": False,
+        "dealloc_on_shared": False,
+        "dealloc_backinv_unique": False,
+        "dealloc_backinv_shared": False,
+    },
+}
 
 
 
@@ -116,19 +234,10 @@ benchmark_choices = [
 size_choices = ["simsmall", "simmedium", "simlarge"]
 
 
-import os 
-
-
-# PATHS
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-
-JSON_CONFIG_DEFAULT = os.path.join(BASE_DIR, "config/chi/json_configs/")
-
 # -------------------------------------------------------
 # Argument parsing
 # -------------------------------------------------------
-parser = argparse.ArgumentParser(description="")
-
+parser = argparse.ArgumentParser(description="Run RISCV Ubuntu FS simulation with CHI cache hierarchy")
 parser.add_argument("--num-cores", type=int, default=4, help="Total number of cores")
 parser.add_argument("--cores-per-cluster", type=int, default=1, help="Cores per CHI cluster, a cluster is the group of cores sharing an L2")
 parser.add_argument(
@@ -160,78 +269,8 @@ parser.add_argument(
     choices=size_choices,
 )
 
-parser.add_argument("--config-path", type=str, default=JSON_CONFIG_DEFAULT,
-                    help="Path to the checkpoint directory")
-
-
 args = parser.parse_args()
 
-
-
-# -------------------------------------------------------
-# Memory setup
-# -------------------------------------------------------
-memory = SingleChannelDDR3_1600(size=args.mem_size)
-# or: memory = DualChannelDDR4_2400(size="3GiB")
-
-
-# -------------------------------------------------------
-# Processor setup
-# -------------------------------------------------------
-processor = SimpleSwitchableProcessor(
-    starting_core_type=CPUTypes.KVM,
-    switch_core_type=CPUTypes.O3,
-    isa=ISA.X86,
-    num_cores=args.num_cores,
-)
-
-
-# -------------------------------------------------------
-# Default kernel arguments
-# ---------------------------------------------------+----
-default_args = [
-    "earlyprintk=ttyS0",
-    "console=ttyS0",
-    "lpj=7999923",
-    "root=/dev/hda1",
-    "disk_device=/dev/hda",
-]
-
-
-# -------------------------------------------------------
-# Exit event handler
-# -------------------------------------------------------
-
-# functions to handle different exit events during the simuation
-def handle_workbegin():
-    print("Done booting Linux")
-    print("Resetting stats at the start of ROI!")
-    m5.stats.reset()
-
-    processor.switch()
-
-    yield False
-
-
-def handle_workend():
-    print("Dump stats at the end of the ROI!")
-    m5.stats.dump()
-    yield True
-
-
-# workload command to first execute when the kernel boots 
-command = (
-    f"cd /home/gem5/parsec-benchmark;"
-    + "source env.sh;"
-    + "m5 resetstats;"
-    + f"parsecmgmt -a run -p {args.benchmark} -c gcc-hooks -i {args.size}         -n 2;"
-    + "sleep 5;"
-    + "m5 exit;"
-)
-
-
-
-# multisim.set_num_processes(2)
 
 
 # -------------------------------------------------------
@@ -242,21 +281,22 @@ if args.cache_class == "no-cache":
 
     cache_hierarchy = NoCache()
 elif args.cache_class == "chi":
-    with open(args.config_path, "r") as f:
-        cache_config = json.load(f)
-
-    l1_config = cache_config["L1"]
-    l2_config = cache_config["L2"]
-    l3_config = cache_config["L3"]
-
     # Custom CHI-based hierarchy
     from config.chi.l3_cache_hierarchy import L3CacheHierarchy
-    
-    cache_hierarchy = L3CacheHierarchy(
+    from config.chi.chiplet import Chiplet 
+    # cache_hierarchy = L3CacheHierarchy(
+    #     l1_config=l1_config,
+    #     l2_config=l2_config,
+    #     l3_config=l3_config,
+    #     cores_per_cluster=args.cores_per_cluster,
+    # )
+
+    cache_hierarchy = Chiplet(
         l1_config=l1_config,
         l2_config=l2_config,
         l3_config=l3_config,
-        cores_per_cluster=args.cores_per_cluster,
+        cores_per_cluster=1,
+        cores_per_chiplet=4
     )
 
 elif args.cache_class == "mesi-three-level": 
@@ -277,6 +317,38 @@ elif args.cache_class == "mesi-three-level":
     )
 else:
     raise ValueError(f"The cache class {args.cache_class} is not supported.")
+
+
+
+# -------------------------------------------------------
+# Memory setup
+# -------------------------------------------------------
+memory = SingleChannelDDR3_1600(size=args.mem_size)
+# or: memory = DualChannelDDR4_2400(size="3GiB")
+
+
+# -------------------------------------------------------
+# Processor setup
+# -------------------------------------------------------
+processor = SimpleSwitchableProcessor(
+    starting_core_type=CPUTypes.KVM,
+    switch_core_type=CPUTypes.TIMING,
+    isa=ISA.X86,
+    num_cores=args.num_cores,
+)
+
+
+# -------------------------------------------------------
+# Default kernel arguments
+# ---------------------------------------------------+----
+default_args = [
+    "earlyprintk=ttyS0",
+    "console=ttyS0",
+    "lpj=7999923",
+    "root={root_value}",
+    "disk_device={disk_device}",
+]
+
 
 # -------------------------------------------------------
 # Board setup
@@ -302,6 +374,16 @@ board = X86Board(
 # properly.
 
 
+command = (
+    f"cd /home/gem5/parsec-benchmark;"
+    + "source env.sh;"
+    + f"parsecmgmt -a run -p {args.benchmark} -c gcc-hooks -i {args.size}         -n 2;"
+    + "sleep 5;"
+    + "m5 exit;"
+)
+
+
+
 # obtain_resource methods download the images automatically from gem5_resource server
 # the resources are downloaded by default 
 board.set_kernel_disk_workload(
@@ -309,11 +391,34 @@ board.set_kernel_disk_workload(
         "x86-linux-kernel-4.19.83", resource_version="1.0.0"
     ),
 
-    disk_image=DiskImageResource(local_path="/mnt/x86-parsec"),
-    #obtain_resource("x86-parsec", resource_version="1.0.0"),
+    disk_image=obtain_resource("x86-parsec", resource_version="1.0.0"),
 
     readfile_contents=command,
 )
+
+
+
+# -------------------------------------------------------
+# Exit event handler
+# -------------------------------------------------------
+
+# functions to handle different exit events during the simuation
+def handle_workbegin():
+    print("Done booting Linux")
+    print("Resetting stats at the start of ROI!")
+    m5.stats.reset()
+
+    processor.switch()
+
+    yield False
+
+
+def handle_workend():
+    print("Dump stats at the end of the ROI!")
+    m5.stats.dump()
+    yield True
+
+
 
 
 # -------------------------------------------------------
@@ -328,7 +433,6 @@ simulator = Simulator(
         ExitEvent.WORKEND: handle_workend(),
     },
 )
-
 
 
 # We maintain the wall clock time.
@@ -358,7 +462,7 @@ print(
 print(
     "Total wallclock time: %.2fs, %.2f min"
     % (time.time() - globalStart, (time.time() - globalStart) / 60)
-    )
+)
 
 
 
