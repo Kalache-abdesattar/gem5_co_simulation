@@ -12,7 +12,7 @@
       "snp_latency": 4,
       "snp_inv_latency": 4
     },
-    "tbe_params": {
+    "TBE_params": {
       "number_of_TBEs": 16,
       "number_of_repl_TBEs": 16,
       "number_of_snoop_TBEs": 4,
@@ -53,7 +53,7 @@
       "snp_latency": 12,
       "snp_inv_latency": 12
     },
-    "tbe_params": {
+    "TBE_params": {
       "number_of_TBEs": 32,
       "number_of_repl_TBEs": 32,
       "number_of_snoop_TBEs": 1,
@@ -94,7 +94,7 @@
       "snp_latency": 24,
       "snp_inv_latency": 24
     },
-    "tbe_params": {
+    "TBE_params": {
       "number_of_TBEs": 32,
       "number_of_repl_TBEs": 32,
       "number_of_snoop_TBEs": 1,

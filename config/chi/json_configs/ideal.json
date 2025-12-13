@@ -12,7 +12,7 @@
       "snp_latency": 4,
       "snp_inv_latency": 4
     },
-    "tbe_params": {
+    "TBE_params": {
       "number_of_TBEs": 16,
       "number_of_repl_TBEs": 16,
       "number_of_snoop_TBEs": 4,
@@ -53,7 +53,7 @@
       "snp_latency": 12,
       "snp_inv_latency": 12
     },
-    "tbe_params": {
+    "TBE_params": {
       "number_of_TBEs": 32,
       "number_of_repl_TBEs": 32,
       "number_of_snoop_TBEs": 1,
@@ -84,6 +84,7 @@
   "L3": {
     "size": "64MiB",
     "assoc": 64,
+
     "latencies": {
       "read_hit_latency": 0,
       "read_miss_latency": 0,
@@ -94,7 +95,7 @@
       "snp_latency": 0,
       "snp_inv_latency": 0
     },
-    "tbe_params": {
+    "TBE_params": {
       "number_of_TBEs": 256,
       "number_of_repl_TBEs": 256,
       "number_of_snoop_TBEs": 256,
@@ -114,10 +115,10 @@
       "alloc_on_readonce": true,
       "alloc_on_writeback": true,
       "alloc_on_atomic": true,
-      "dealloc_on_unique": true,
-      "dealloc_on_shared": true,
-      "dealloc_backinv_unique": true,
-      "dealloc_backinv_shared": true
+      "dealloc_on_unique": false,
+      "dealloc_on_shared": false,
+      "dealloc_backinv_unique": false,
+      "dealloc_backinv_shared": false
     }
   }
 }
