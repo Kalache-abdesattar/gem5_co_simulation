@@ -161,6 +161,126 @@ memory = SingleChannelDDR3_1600(size=args.mem_size)
 # or: memory = DualChannelDDR4_2400(size="3GiB")
 
 
+l1_config = {
+    "size": "64KiB",
+    "assoc": 4,
+    "latencies": {
+        "read_hit_latency": 3,
+        "read_miss_latency": 4,
+        "atomic_op_latency": 5,
+        "write_fe_latency": 3,
+        "write_be_latency": 3,
+        "fill_latency": 4,
+        "snp_latency": 4,
+        "snp_inv_latency": 4,
+    },
+    "TBE_params": {
+        "number_of_TBEs": 16,
+        "number_of_repl_TBEs": 16,
+        "number_of_snoop_TBEs": 4,
+        "number_of_DVM_TBEs": 16,
+        "number_of_DVM_snoop_TBEs": 4,
+        "unify_repl_TBEs": False,
+    },
+    "allow_SD": False,
+    "prefetcher": None,
+    "use_prefetcher": False,
+    "clusivity": {
+        "alloc_on_seq_acc": True,
+        "alloc_on_seq_line_write": False,
+        "alloc_on_readshared": True,
+        "alloc_on_readunique": True,
+        "alloc_on_readonce": True,
+        "alloc_on_writeback": False,
+        "alloc_on_atomic": False,
+        "dealloc_on_unique": False,
+        "dealloc_on_shared": False,
+        "dealloc_backinv_unique": True,
+        "dealloc_backinv_shared": True,
+    },
+}
+
+
+l2_config = {
+    "size": "512KiB",
+    "assoc": 8,
+    "latencies": {
+        "read_hit_latency": 12,
+        "read_miss_latency": 13,
+        "atomic_op_latency": 14,
+        "write_fe_latency": 12,
+        "write_be_latency": 10,
+        "fill_latency": 12,
+        "snp_latency": 12,
+        "snp_inv_latency": 12,
+    },
+    "TBE_params": {
+        "number_of_TBEs": 32,
+        "number_of_repl_TBEs": 32,
+        "number_of_snoop_TBEs": 1,
+        "number_of_DVM_TBEs": 1,
+        "number_of_DVM_snoop_TBEs": 1,
+        "unify_repl_TBEs": False,
+    },
+    "allow_SD": False,
+    "prefetcher": None,
+    "use_prefetcher": False,
+    "clusivity": {
+        "alloc_on_seq_acc": True,
+        "alloc_on_seq_line_write": True,
+        "alloc_on_readshared": True,
+        "alloc_on_readunique": True,
+        "alloc_on_readonce": True,
+        "alloc_on_writeback": True,
+        "alloc_on_atomic": True,
+        "dealloc_on_unique": False,
+        "dealloc_on_shared": False,
+        "dealloc_backinv_unique": True,
+        "dealloc_backinv_shared": True,
+    },
+}
+
+
+l3_config = {
+    "size": "16MiB",
+    "assoc": 8,
+    "latencies": {
+        "read_hit_latency": 24,
+        "read_miss_latency": 25,
+        "atomic_op_latency": 27,
+        "write_fe_latency": 24,
+        "write_be_latency": 24,
+        "fill_latency": 24,
+        "snp_latency": 24,
+        "snp_inv_latency": 24,
+    },
+    "TBE_params": {
+        "number_of_TBEs": 32,
+        "number_of_repl_TBEs": 32,
+        "number_of_snoop_TBEs": 1,
+        "number_of_DVM_TBEs": 1,
+        "number_of_DVM_snoop_TBEs": 1,
+        "unify_repl_TBEs": False,
+    },
+    "prefetcher": None,
+    "allow_SD": False,
+    "use_prefetcher": False,
+    "clusivity": {
+        "alloc_on_seq_acc": True,
+        "alloc_on_seq_line_write": True,
+        "alloc_on_readshared": True,
+        "alloc_on_readunique": True,
+        "alloc_on_readonce": True,
+        "alloc_on_writeback": True,
+        "alloc_on_atomic": True,
+        "dealloc_on_unique": False,
+        "dealloc_on_shared": False,
+        "dealloc_backinv_unique": False,
+        "dealloc_backinv_shared": False,
+    },
+}
+
+
 
 # -------------------------------------------------------
 # Processor setup
@@ -279,22 +399,22 @@ if args.cache_class == "no-cache":
 
 elif args.cache_class == "chi":
 
-    with open(args.config_path, "r") as f:
-        cache_config = json.load(f)
-
-    l1_config = cache_config["L1"]
-    l2_config = cache_config["L2"]
-    l3_config = cache_config["L3"]
-
-    # Custom CHI-based hierarchy
     from config.chi.l3_cache_hierarchy import L3CacheHierarchy
-    
+    from config.chi.chiplet import Chiplet 
     cache_hierarchy = L3CacheHierarchy(
         l1_config=l1_config,
         l2_config=l2_config,
         l3_config=l3_config,
         cores_per_cluster=args.cores_per_cluster,
     )
+
+    # cache_hierarchy = Chiplet(
+    #     l1_config=l1_config,
+    #     l2_config=l2_config,
+    #     l3_config=l3_config,
+    #     cores_per_cluster=1,
+    #     cores_per_chiplet=4
+    # )
 
 elif args.cache_class == "mesi-three-level": 
     from gem5.components.cachehierarchies.ruby.mesi_three_level_cache_hierarchy import (
@@ -343,7 +463,7 @@ board.set_kernel_disk_workload(
         local_path=args.disk_image
     ),
 
-    readfile_contents=(),
+    readfile_contents=("m5 exit;"),
 )
 
 
