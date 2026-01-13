@@ -116,6 +116,8 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
         # Cache network reference (will be provided later by the system)
         self._network = None
 
+        self._l3_caches = []
+
 
     def incorporate_cache(self, board: AbstractBoard):
 
@@ -139,15 +141,55 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
         self.ruby_system.number_of_virtual_networks = 4
         self.ruby_system.network.number_of_virtual_networks = 4
 
-        # Create a single centralized L3/Home node
-        self.l3cache = SharedL3(
-            config=self._l3_config,
-            network=self.ruby_system.network,
-            cache_line_size=board.get_cache_line_size()
-        )
-        self.l3cache.ruby_system = self.ruby_system
+        num_l3s = 2
 
-        
+        # for i in range(num_l3s):
+        #     l3_node = SharedL3(
+        #         config=self._l3_config,
+        #         network=self.ruby_system.network,
+        #         cache_line_size=board.get_cache_line_size(),
+        #         addr_ranges=[AddrRange(start=0xC0000000, size='3GiB', intlvHighBit=6, intlvBits=1, intlvMatch=i)]
+        #     )
+        #     l3_node.ruby_system = self.ruby_system
+
+        #     self._l3_caches.append(l3_node)
+
+
+        # 1. Access the ranges defined by the X86Board
+        # This includes the 0-3GB range and the IO range you shared
+        board_ranges = board.mem_ranges 
+
+        print("L3CacheHierarchy DEBUG: MEM_RANGES " + str(board_ranges))
+
+        num_l3s = 2
+
+        for i in range(num_l3s):
+            l3_interleaved_ranges = []
+            
+            # 2. For every range the board has, create an interleaved version for this L3 bank
+            for r in board_ranges:
+                l3_interleaved_ranges.append(
+                    AddrRange(
+                        start=r.start,
+                        end=r.end,
+                        intlvHighBit=6, # 64-byte alignment
+                        intlvBits=1,    # 2^1 = 2 nodes
+                        intlvMatch=i     # Bank 0 matches 0, Bank 1 matches 1
+                    )
+                )
+
+            # 3. Pass these specific ranges to your SharedL3 instance
+            l3_node = SharedL3(
+                config=self._l3_config,
+                network=self.ruby_system.network,
+                cache_line_size=board.get_cache_line_size(),
+                addr_ranges=l3_interleaved_ranges 
+            )
+            
+            l3_node.ruby_system = self.ruby_system
+            self._l3_caches.append(l3_node)
+
+            
         num_l2_caches = num_cores // self._cores_per_cluster 
         l2_caches = []
 
@@ -194,9 +236,10 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
 
         # In CHI, you must explicitly set downstream controllers
         for cache in l2_caches:
-            cache.downstream_destinations = [self.l3cache]
+            cache.downstream_destinations = self._l3_caches
 
-        self.l3cache.downstream_destinations = self.memory_controllers
+        for cache in self._l3_caches:
+            cache.downstream_destinations = self.memory_controllers
 
 
         # Create the DMA Controllers, if required as in FS mode
@@ -224,7 +267,7 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
                 )
             )
             + l2_caches
-            + [self.l3cache]
+            + self._l3_caches
             + self.memory_controllers
             + dma_controllers
         )
@@ -346,7 +389,7 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
             ctrl.ruby_system = self.ruby_system
             ctrl.sequencer.ruby_system = self.ruby_system
 
-            ctrl.downstream_destinations = [self.l3cache]
+            ctrl.downstream_destinations = self._l3_caches
 
             dma_controllers.append(ctrl)
 
