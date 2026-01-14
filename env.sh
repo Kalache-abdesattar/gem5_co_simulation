@@ -6,6 +6,7 @@ cd gem5/
 
 pip3 install -r requirements.txt
 
+
 ## X86: build .fast and .opt version
 
 #// scons build/X86_CHI/gem5.debug -j$(nproc) EXTRAS="$GEM5_EXTRAS"

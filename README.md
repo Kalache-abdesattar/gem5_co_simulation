@@ -103,8 +103,8 @@ docker run -it --privileged -v $HOME_DIR:/mnt DOCKER_IMAGE
 /root/.cache/gem5/      # contains x86-parsec disk image downloaded directly from gem5.resources
 ```
 
-### Re-running the Experiments Yourself 
-#### X86 Parsec Benchmark 
+## Re-running the Experiments Yourself 
+### X86 Parsec Benchmark 
 From the repo root **/home/gem5_co_simulation**.
 
 ```bash
@@ -129,7 +129,7 @@ When the gem5 loads the kernel and disk image, it exposes a port terminal port (
 gem5/util/term/m5term 3456
 ```
 
-#### X86 and RISCV Generic Run
+### X86 and RISCV Generic Run
 Under **/home/gem5_co_simulation/config/run**, two generic run script for both X86 and RISCV are found.  
 ```bash
 ~ gem5/build/RISCV_CHI/gem5.opt config/run/riscv-ubuntu-run.py --help
@@ -182,7 +182,7 @@ gem5/util/term/m5term 3456
 /root/gem5~ ./bin/ft.S.x
 ```
 
-#### Gromacs
+### Gromacs
 Similar as before, just point gem5 to **images/disk/riscv-ubuntu-24.04-img**:
 ```bash
 ~ gem5/build/RISCV_CHI/gem5.opt --disk-image /images/disk/riscv-ubuntu-24.04-img --checkpoint-path checkpoints/riscv_gromacs_checkpoint --save-checkpoint
@@ -200,13 +200,23 @@ cd /home/gromacs/out
 sudo /home/gromacs/build/bin/gmx mdrun -v -deffnm md_0_10 -cpt -1 -nt 4
 ```
 
-#### Stats Parser
+### Stats Parser
 Stats parser parses the json-formatted stat file generated from gem5. It extracts scalar stat entities such as (simulation runtime, number of instructions, hit/miss ratios for each cache level), and vector stat entities (eg. delay histograms for each CHI transaction) and plots them. 
 ```bash
-python3 helper/parse_stats.py
+python3 helper/parse_stats.py --help
+  usage: parse_stats.py [-h] --stats-path STATS_PATH [--plot-dir PLOT_DIR]
+
+  Parse and visualize cache statistics from gem5 JSON stats.
+
+  options:
+    -h, --help            show this help message and exit
+    --stats-path STATS_PATH
+                          Path to the gem5 JSON stats file (e.g., /path/to/stats.json)
+    --plot-dir PLOT_DIR   Directory to save histogram plots (default: ./plots)
+
 ```
 
-#### Konata Viewer
+### Konata Viewer
 [Konata viewer](https://github.com/shioyadan/Konata) is an instruction pipeline visualizer for O3 cpu-type of GEM5. First, install [konata](https://github.com/shioyadan/Konata/releases/tag/v0.39). Then, you can generate konata-compatible traces from gem5 by using **O3PipeView** debug flags, forward the traces file to your host machine for inspection through the mounted shared directory /mnt/.
 ```bash
 # An O3 cpu type must be used 

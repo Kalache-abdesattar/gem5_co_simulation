@@ -1,3 +1,5 @@
+# BSD 3-Clause License
+
 # Copyright (c) 2025 Tampere University, Finland
 # All rights reserved.
 #
@@ -88,27 +90,36 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
         A three level cache based on CHI
     """
 
-    def __init__(self, l1_size: str, l1_assoc: int, l2_size: str, l2_assoc: int, l3_size: str, l3_assoc: int, cores_per_cluster: int):
+    def __init__(
+        self,
+        l1_config: dict,
+        l2_config: dict,
+        l3_config: dict,
+        cores_per_cluster: int,
+    ):
         """
-        :param l1_size: The size of the priavte I/D caches in the hierarchy.
-        :param l1_assoc: The associativity of each cache.
-        :param l2_size: The size of the shared L2 cache.
-        :param l2_assoc: The associativity of the shared L2 cache.
+        Args:
+            l1_config (dict): L1 configuration (size, assoc, latencies, clusivity, etc.)
+            l2_config (dict): L2 configuration (size, assoc, latencies, clusivity, etc.)
+            l3_config (dict): L3 configuration (size, assoc, latencies, clusivity, etc.)
+            cores_per_cluster (int): Number of cores per L2 cluster.
+            enable_l1_prefetch (bool): Enables prefetchers on private L1s.
+            enable_l2_prefetch (bool): Enables prefetchers on shared L2s.
         """
         super().__init__()
 
-        self._l1_size = l1_size
-        self._l1_assoc = l1_assoc
-        self._l2_size = l2_size
-        self._l2_assoc = l2_assoc
-        self._l3_size = l3_size
-        self._l3_assoc = l3_assoc
+        self._l1_config = l1_config
+        self._l2_config = l2_config
+        self._l3_config = l3_config
         self._cores_per_cluster = cores_per_cluster
-        self._enable_l1_prefetch = False
-        self._enable_l2_prefetch = False
+
+        # Cache network reference (will be provided later by the system)
+        self._network = None
+
+        self._l3_caches = []
 
 
-    def incorporate_cache(self, board):
+    def incorporate_cache(self, board: AbstractBoard):
 
         # Create the Ruby System. This is a singleton that is required for
         # all ruby protocols. Must be exactly 1 in the simulation.
@@ -118,36 +129,80 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
         num_cores = len(board.get_processor().get_cores())
 
         # Ruby's global network.
-        self.ruby_system.network = ChiNoC(self.ruby_system, num_cores, self._cores_per_cluster, board.has_dma_ports())
+        self.ruby_system.network = ChiNoC(
+            self.ruby_system, 
+            num_cores, 
+            self._cores_per_cluster,
+            board.has_dma_ports()
+        )
 
         # Network configurations
         # virtual networks: 0=request, 1=snoop, 2=response, 3=data
         self.ruby_system.number_of_virtual_networks = 4
         self.ruby_system.network.number_of_virtual_networks = 4
 
-        # Create a single centralized L3/Home node
-        self.l3cache = SharedL3(
-            size=self._l3_size,
-            assoc=self._l3_assoc,
-            network=self.ruby_system.network,
-            cache_line_size=board.get_cache_line_size()
-        )
-        self.l3cache.ruby_system = self.ruby_system
+        num_l3s = 2
 
-        
+        # for i in range(num_l3s):
+        #     l3_node = SharedL3(
+        #         config=self._l3_config,
+        #         network=self.ruby_system.network,
+        #         cache_line_size=board.get_cache_line_size(),
+        #         addr_ranges=[AddrRange(start=0xC0000000, size='3GiB', intlvHighBit=6, intlvBits=1, intlvMatch=i)]
+        #     )
+        #     l3_node.ruby_system = self.ruby_system
+
+        #     self._l3_caches.append(l3_node)
+
+
+        # 1. Access the ranges defined by the X86Board
+        # This includes the 0-3GB range and the IO range you shared
+        board_ranges = board.mem_ranges 
+
+        print("L3CacheHierarchy DEBUG: MEM_RANGES " + str(board_ranges))
+
+        num_l3s = 2
+
+        for i in range(num_l3s):
+            l3_interleaved_ranges = []
+            
+            # 2. For every range the board has, create an interleaved version for this L3 bank
+            for r in board_ranges:
+                l3_interleaved_ranges.append(
+                    AddrRange(
+                        start=r.start,
+                        end=r.end,
+                        intlvHighBit=6, # 64-byte alignment
+                        intlvBits=1,    # 2^1 = 2 nodes
+                        intlvMatch=i     # Bank 0 matches 0, Bank 1 matches 1
+                    )
+                )
+
+            # 3. Pass these specific ranges to your SharedL3 instance
+            l3_node = SharedL3(
+                config=self._l3_config,
+                network=self.ruby_system.network,
+                cache_line_size=board.get_cache_line_size(),
+                addr_ranges=l3_interleaved_ranges 
+            )
+            
+            l3_node.ruby_system = self.ruby_system
+            self._l3_caches.append(l3_node)
+
+            
         num_l2_caches = num_cores // self._cores_per_cluster 
         l2_caches = []
+
         l2_prefetchers = []
 
         for i in range(num_l2_caches): 
             # Create l2_prefetchers objects to be passed to the L2 objects
-            l2_prefetcher = BOPPrefetcher(latency=1, cache_snoop=False) if self._enable_l2_prefetch else None
+            l2_prefetcher = BOPPrefetcher(latency=1, cache_snoop=False)
             l2_prefetchers.append(l2_prefetcher)
 
             # Create an L2 node 
             l2_cache = SharedL2( 
-                size=self._l2_size, 
-                assoc=self._l2_assoc, 
+                config=self._l2_config,
                 network=self.ruby_system.network, 
                 cache_line_size=board.get_cache_line_size(),
                 prefetcher_=l2_prefetchers[i]
@@ -159,13 +214,13 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
 
         # Construct L1 prefetchers' dictionary lists
         l1_prefetchers = []
+
         for i in range(num_cores):
             l1_prefetcher_dict = {
-                "L1i" : TaggedPrefetcher(degree=1, latency=1) if self._enable_l1_prefetch else None,
-                "L1d" : StridePrefetcher(degree=1, latency=1) if self._enable_l1_prefetch else None
+                "L1i" : TaggedPrefetcher(degree=1, latency=1),
+                "L1d" : StridePrefetcher(degree=1, latency=1)
             }
             l1_prefetchers.append(l1_prefetcher_dict)
-
         
 
         # Create one core cluster with a split I/D cache for each core
@@ -181,9 +236,10 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
 
         # In CHI, you must explicitly set downstream controllers
         for cache in l2_caches:
-            cache.downstream_destinations = [self.l3cache]
+            cache.downstream_destinations = self._l3_caches
 
-        self.l3cache.downstream_destinations = self.memory_controllers
+        for cache in self._l3_caches:
+            cache.downstream_destinations = self.memory_controllers
 
 
         # Create the DMA Controllers, if required as in FS mode
@@ -211,7 +267,7 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
                 )
             )
             + l2_caches
-            + [self.l3cache]
+            + self._l3_caches
             + self.memory_controllers
             + dma_controllers
         )
@@ -227,7 +283,7 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
 
 
     def _create_core_cluster(
-        self, core, core_num: int, board, l2_caches, l1_prefetchers, cores_per_cluster
+        self, core, core_num: int, board: AbstractBoard, l2_caches: List, l1_prefetchers: List[dict], cores_per_cluster: int
     ) -> SubSystem:
         """Given the core and the core number this function creates a cluster
         for the core with a split I/D cache.
@@ -237,24 +293,24 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
 
         # Create the caches
         cluster.dcache = PrivateL1MOESICache(
-            size=self._l1_size,
-            assoc=self._l1_assoc,
+            config=self._l1_config,
             network=self.ruby_system.network,
             core=core,
             cache_line_size=board.get_cache_line_size(),
             target_isa=board.get_processor().get_isa(),
             clk_domain=board.get_clock_domain(),
-            prefetcher_=l1_prefetchers[core_num].get("L1d")
+            prefetcher_=l1_prefetchers[core_num].get("L1d"),
+            sc_lock_enabled_=False
         )
         cluster.icache = PrivateL1MOESICache(
-            size=self._l1_size,
-            assoc=self._l1_assoc,
+            config=self._l1_config,
             network=self.ruby_system.network,
             core=core,
             cache_line_size=board.get_cache_line_size(),
             target_isa=board.get_processor().get_isa(),
             clk_domain=board.get_clock_domain(),
-            prefetcher_=l1_prefetchers[core_num].get("L1i")
+            prefetcher_=l1_prefetchers[core_num].get("L1i"),
+            sc_lock_enabled_=False
         )
 
         # The sequencers are used to connect the core to the cache
@@ -333,7 +389,7 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
             ctrl.ruby_system = self.ruby_system
             ctrl.sequencer.ruby_system = self.ruby_system
 
-            ctrl.downstream_destinations = [self.l3cache]
+            ctrl.downstream_destinations = self._l3_caches
 
             dma_controllers.append(ctrl)
 

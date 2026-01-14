@@ -1,0 +1,124 @@
+{
+  "L1": {
+    "size": "64KiB",
+    "assoc": 8,
+    "latencies": {
+      "read_hit_latency": 3,
+      "read_miss_latency": 4,
+      "atomic_op_latency": 5,
+      "write_fe_latency": 3,
+      "write_be_latency": 3,
+      "fill_latency": 4,
+      "snp_latency": 4,
+      "snp_inv_latency": 4
+    },
+    "TBE_params": {
+      "number_of_TBEs": 16,
+      "number_of_repl_TBEs": 16,
+      "number_of_snoop_TBEs": 4,
+      "number_of_DVM_TBEs": 16,
+      "number_of_DVM_snoop_TBEs": 4,
+      "unify_repl_TBEs": false
+    },
+    "allow_SD": true,
+    "prefetcher": null,
+    "use_prefetcher": false,
+
+    "clusivity": {
+      "alloc_on_seq_acc": true,
+      "alloc_on_seq_line_write": false,
+      "alloc_on_readshared": true,
+      "alloc_on_readunique": true,
+      "alloc_on_readonce": true,
+      "alloc_on_writeback": false,
+      "alloc_on_atomic": false,
+      "dealloc_on_unique": false,
+      "dealloc_on_shared": false,
+      "dealloc_backinv_unique": true,
+      "dealloc_backinv_shared": true
+    }
+  },
+
+
+  "L2": {
+    "size": "512KiB",
+    "assoc": 12,
+    "latencies": {
+      "read_hit_latency": 12,
+      "read_miss_latency": 13,
+      "atomic_op_latency": 14,
+      "write_fe_latency": 12,
+      "write_be_latency": 10,
+      "fill_latency": 12,
+      "snp_latency": 12,
+      "snp_inv_latency": 12
+    },
+    "TBE_params": {
+      "number_of_TBEs": 32,
+      "number_of_repl_TBEs": 32,
+      "number_of_snoop_TBEs": 1,
+      "number_of_DVM_TBEs": 1,
+      "number_of_DVM_snoop_TBEs": 1,
+      "unify_repl_TBEs": false
+    },
+    "allow_SD": true,
+    "prefetcher": null,
+    "use_prefetcher": false,
+
+    "clusivity": {
+      "alloc_on_seq_acc": true,
+      "alloc_on_seq_line_write": true,
+      "alloc_on_readshared": true,
+      "alloc_on_readunique": true,
+      "alloc_on_readonce": true,
+      "alloc_on_writeback": true,
+      "alloc_on_atomic": true,
+      "dealloc_on_unique": false,
+      "dealloc_on_shared": false,
+      "dealloc_backinv_unique": false,
+      "dealloc_backinv_shared": false
+    }
+  },
+
+
+  "L3": {
+    "size": "64MiB",
+    "assoc": 64,
+
+    "latencies": {
+      "read_hit_latency": 0,
+      "read_miss_latency": 0,
+      "atomic_op_latency": 0,
+      "write_fe_latency": 0,
+      "write_be_latency": 0,
+      "fill_latency": 0,
+      "snp_latency": 0,
+      "snp_inv_latency": 0
+    },
+    "TBE_params": {
+      "number_of_TBEs": 256,
+      "number_of_repl_TBEs": 256,
+      "number_of_snoop_TBEs": 256,
+      "number_of_DVM_TBEs": 256,
+      "number_of_DVM_snoop_TBEs": 256,
+      "unify_repl_TBEs": false
+    },
+    "prefetcher": null,
+    "allow_SD": true,
+    "use_prefetcher": false,
+
+    "clusivity": {
+      "alloc_on_seq_acc": true,
+      "alloc_on_seq_line_write": true,
+      "alloc_on_readshared": true,
+      "alloc_on_readunique": true,
+      "alloc_on_readonce": true,
+      "alloc_on_writeback": true,
+      "alloc_on_atomic": true,
+      "dealloc_on_unique": false,
+      "dealloc_on_shared": false,
+      "dealloc_backinv_unique": false,
+      "dealloc_backinv_shared": false
+    }
+  }
+}

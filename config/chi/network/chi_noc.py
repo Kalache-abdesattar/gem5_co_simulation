@@ -95,17 +95,28 @@ class ChiNoC(SimpleNetwork):
 
             link_count += 1
             int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l2_idx], dst_node=self.routers[l3_idx]))
+
+            link_count += 1
+            int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l2_idx], dst_node=self.routers[l3_idx+1]))
             
             link_count += 1
             int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l3_idx], dst_node=self.routers[l2_idx]))
+            
+            link_count += 1
+            int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l3_idx+1], dst_node=self.routers[l2_idx]))
 
 
-        mem_ctrl_idx = l3_idx + 1
+        mem_ctrl_idx = l3_idx + 2
         # L3  ↔ MemCtrl 
         link_count += 1
         int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l3_idx], dst_node=self.routers[mem_ctrl_idx]))
         link_count += 1
         int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[mem_ctrl_idx], dst_node=self.routers[l3_idx]))
+
+        link_count += 1
+        int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l3_idx+1], dst_node=self.routers[mem_ctrl_idx]))
+        link_count += 1
+        int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[mem_ctrl_idx], dst_node=self.routers[l3_idx+1]))
 
     
         if self._has_dma_ports: 
@@ -119,6 +130,16 @@ class ChiNoC(SimpleNetwork):
             int_links.append(SimpleIntLink(link_id=link_count,
                                         src_node=self.routers[l3_idx],
                                         dst_node=self.routers[dma0_idx]))
+            
+            # DMA0 ↔ L3 
+            link_count += 1
+            int_links.append(SimpleIntLink(link_id=link_count,
+                                        src_node=self.routers[dma0_idx],
+                                        dst_node=self.routers[l3_idx+1]))
+            link_count += 1
+            int_links.append(SimpleIntLink(link_id=link_count,
+                                        src_node=self.routers[l3_idx+1],
+                                        dst_node=self.routers[dma0_idx]))
 
             # DMA1 ↔ L3
             dma1_idx = mem_ctrl_idx + 2
@@ -130,6 +151,15 @@ class ChiNoC(SimpleNetwork):
             link_count += 1
             int_links.append(SimpleIntLink(link_id=link_count,
                                         src_node=self.routers[l3_idx],
+                                        dst_node=self.routers[dma1_idx]))
+            
+            link_count += 1
+            int_links.append(SimpleIntLink(link_id=link_count,
+                                        src_node=self.routers[dma1_idx],
+                                        dst_node=self.routers[l3_idx+1]))
+            link_count += 1
+            int_links.append(SimpleIntLink(link_id=link_count,
+                                        src_node=self.routers[l3_idx+1],
                                         dst_node=self.routers[dma1_idx]))
 
 

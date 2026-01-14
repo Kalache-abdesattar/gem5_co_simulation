@@ -105,6 +105,7 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 CHECKPOINT_DEFAULT = os.path.join(BASE_DIR, "checkpoints", "riscv_ubuntu_checkpoint")
 DISK_IMAGE_DEFAULT = os.path.join(BASE_DIR, "images", "disk", "x86-ubuntu-22.04-img")
 KERNEL_DEFAULT = os.path.join(BASE_DIR, "images", "kernel", "x86-linux-6.8.0-52")
+JSON_CONFIG_DEFAULT = os.path.join(BASE_DIR, "config/chi/cache_config.json")
 
 
 # -------------------------------------------------------
@@ -147,11 +148,13 @@ parser.add_argument("--load-checkpoint", action="store_true",
                     help="Load from an existing checkpoint instead of booting fresh")
 parser.add_argument("--checkpoint-path", type=str, default=CHECKPOINT_DEFAULT,
                     help="Path to the checkpoint directory")
+parser.add_argument("--config-path", type=str, default=JSON_CONFIG_DEFAULT,
+                    help="Path to the checkpoint directory")
 
 
 args = parser.parse_args()
 
-
+import json 
 
 # -------------------------------------------------------
 # Cache hierarchy setup
@@ -160,19 +163,26 @@ if args.cache_class == "no-cache":
     from gem5.components.cachehierarchies.classic.no_cache import NoCache
 
     cache_hierarchy = NoCache()
+
 elif args.cache_class == "chi":
+
+    with open(args.config_path, "r") as f:
+        cache_config = json.load(f)
+
+    l1_config = cache_config["L1"]
+    l2_config = cache_config["L2"]
+    l3_config = cache_config["L3"]
+
     # Custom CHI-based hierarchy
     from config.chi.l3_cache_hierarchy import L3CacheHierarchy
     
     cache_hierarchy = L3CacheHierarchy(
-        l1_size="16KiB",
-        l1_assoc=8,
-        l2_size="1MiB",
-        l2_assoc=16,
-        l3_size="16MiB",
-        l3_assoc=32,
+        l1_config=l1_config,
+        l2_config=l2_config,
+        l3_config=l3_config,
         cores_per_cluster=args.cores_per_cluster,
     )
+
 elif args.cache_class == "mesi-three-level": 
     from gem5.components.cachehierarchies.ruby.mesi_three_level_cache_hierarchy import (
             MESIThreeLevelCacheHierarchy,

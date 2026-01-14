@@ -84,6 +84,8 @@ from gem5.simulate.simulator import Simulator
 from gem5.utils.requires import requires
 from gem5.components.processors.simple_switchable_processor import SimpleSwitchableProcessor
 
+import gem5.utils.multisim as multisim 
+
 
 
 
@@ -97,8 +99,9 @@ import os
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 CHECKPOINT_DEFAULT = os.path.join(BASE_DIR, "checkpoints", "riscv_ubuntu_checkpoint")
 DISK_IMAGE_DEFAULT = os.path.join(BASE_DIR, "images", "disk", "riscv-ubuntu-24.04-img")
-KERNEL_DEFAULT = os.path.join(BASE_DIR, "images", "kernel", "riscv-linux-5.15.180-kernel")
+KERNEL_DEFAULT = os.path.join(BASE_DIR, "images", "kernel", "riscv-linux-5.15.180")
 BOOTLOADER_DEFAULT = os.path.join(BASE_DIR, "images", "bootloader", "riscv-bootloader-opensbi-1.3.1")
+JSON_CONFIG_DEFAULT = os.path.join(BASE_DIR, "config/chi/")
 
 
 
@@ -144,49 +147,131 @@ parser.add_argument("--load-checkpoint", action="store_true",
 parser.add_argument("--checkpoint-path", type=str, default=CHECKPOINT_DEFAULT,
                     help="Path to the checkpoint directory")
 
+parser.add_argument("--config-dir", type=str, default=JSON_CONFIG_DEFAULT,
+                    help="Path to the checkpoint directory")
+
 args = parser.parse_args()
 
 
 
-# -------------------------------------------------------
-# Cache hierarchy setup
-# -------------------------------------------------------
-if args.cache_class == "no-cache":
-    from gem5.components.cachehierarchies.classic.no_cache import NoCache
+l1_config = {
+    "size": "64KiB",
+    "assoc": 4,
+    "latencies": {
+        "read_hit_latency": 3,
+        "read_miss_latency": 4,
+        "atomic_op_latency": 5,
+        "write_fe_latency": 3,
+        "write_be_latency": 3,
+        "fill_latency": 4,
+        "snp_latency": 4,
+        "snp_inv_latency": 4,
+    },
+    "TBE_params": {
+        "number_of_TBEs": 16,
+        "number_of_repl_TBEs": 16,
+        "number_of_snoop_TBEs": 4,
+        "number_of_DVM_TBEs": 16,
+        "number_of_DVM_snoop_TBEs": 4,
+        "unify_repl_TBEs": False,
+    },
+    "allow_SD": False,
+    "prefetcher": None,
+    "use_prefetcher": False,
+    "clusivity": {
+        "alloc_on_seq_acc": True,
+        "alloc_on_seq_line_write": False,
+        "alloc_on_readshared": True,
+        "alloc_on_readunique": True,
+        "alloc_on_readonce": True,
+        "alloc_on_writeback": False,
+        "alloc_on_atomic": False,
+        "dealloc_on_unique": False,
+        "dealloc_on_shared": False,
+        "dealloc_backinv_unique": True,
+        "dealloc_backinv_shared": True,
+    },
+}
 
-    cache_hierarchy = NoCache()
-elif args.cache_class == "chi":
-    # Custom CHI-based hierarchy
-    from config.chi.l3_cache_hierarchy import L3CacheHierarchy
-    
-    cache_hierarchy = L3CacheHierarchy(
-        l1_size="16KiB",
-        l1_assoc=8,
-        l2_size="1MiB",
-        l2_assoc=16,
-        l3_size="16MiB",
-        l3_assoc=32,
-        cores_per_cluster=args.cores_per_cluster,
-    )
-elif args.cache_class == "mesi-three-level": 
-    from gem5.components.cachehierarchies.ruby.mesi_three_level_cache_hierarchy import (
-            MESIThreeLevelCacheHierarchy,
-    )
 
-    cache_hierarchy = MESIThreeLevelCacheHierarchy(
-        l1i_size="32KiB",
-        l1i_assoc=8,
-        l1d_size="32KiB",
-        l1d_assoc=8,
-        l2_size="256KiB",
-        l2_assoc=4,
-        l3_size="16MiB",
-        l3_assoc=16,
-        num_l3_banks=1,
-    )
-else:
-    raise ValueError(f"The cache class {args.cache_class} is not supported.")
+l2_config = {
+    "size": "512KiB",
+    "assoc": 8,
+    "latencies": {
+        "read_hit_latency": 12,
+        "read_miss_latency": 13,
+        "atomic_op_latency": 14,
+        "write_fe_latency": 12,
+        "write_be_latency": 10,
+        "fill_latency": 12,
+        "snp_latency": 12,
+        "snp_inv_latency": 12,
+    },
+    "TBE_params": {
+        "number_of_TBEs": 32,
+        "number_of_repl_TBEs": 32,
+        "number_of_snoop_TBEs": 1,
+        "number_of_DVM_TBEs": 1,
+        "number_of_DVM_snoop_TBEs": 1,
+        "unify_repl_TBEs": False,
+    },
+    "allow_SD": False,
+    "prefetcher": None,
+    "use_prefetcher": False,
+    "clusivity": {
+        "alloc_on_seq_acc": True,
+        "alloc_on_seq_line_write": True,
+        "alloc_on_readshared": True,
+        "alloc_on_readunique": True,
+        "alloc_on_readonce": True,
+        "alloc_on_writeback": True,
+        "alloc_on_atomic": True,
+        "dealloc_on_unique": False,
+        "dealloc_on_shared": False,
+        "dealloc_backinv_unique": True,
+        "dealloc_backinv_shared": True,
+    },
+}
 
+
+l3_config = {
+    "size": "16MiB",
+    "assoc": 8,
+    "latencies": {
+        "read_hit_latency": 24,
+        "read_miss_latency": 25,
+        "atomic_op_latency": 27,
+        "write_fe_latency": 24,
+        "write_be_latency": 24,
+        "fill_latency": 24,
+        "snp_latency": 24,
+        "snp_inv_latency": 24,
+    },
+    "TBE_params": {
+        "number_of_TBEs": 32,
+        "number_of_repl_TBEs": 32,
+        "number_of_snoop_TBEs": 1,
+        "number_of_DVM_TBEs": 1,
+        "number_of_DVM_snoop_TBEs": 1,
+        "unify_repl_TBEs": False,
+    },
+    "prefetcher": None,
+    "allow_SD": False,
+    "use_prefetcher": False,
+    "clusivity": {
+        "alloc_on_seq_acc": True,
+        "alloc_on_seq_line_write": True,
+        "alloc_on_readshared": True,
+        "alloc_on_readunique": True,
+        "alloc_on_readonce": True,
+        "alloc_on_writeback": True,
+        "alloc_on_atomic": True,
+        "dealloc_on_unique": False,
+        "dealloc_on_shared": False,
+        "dealloc_backinv_unique": False,
+        "dealloc_backinv_shared": False,
+    },
+}
 
 
 # -------------------------------------------------------
@@ -196,9 +281,7 @@ memory = SingleChannelDDR3_1600(size=args.mem_size)
 # or: memory = DualChannelDDR4_2400(size="3GiB")
 
 
-# -------------------------------------------------------
-# Processor setup
-# -------------------------------------------------------
+
 # -------------------------------------------------------
 # Processor setup
 # -------------------------------------------------------
@@ -233,6 +316,109 @@ default_args = [
 
 
 # -------------------------------------------------------
+# Exit event handler
+# -------------------------------------------------------
+
+if args.load_checkpoint:
+    def exit_event_handler():
+
+        print("Second exit: Entering benchamrk ROI")
+
+        print("Switching from Atomic Cores to SimpleTiming Cores...")
+        processor.switch()
+
+        yield False
+        
+        print("Third exit: Final Exit")
+        
+        yield False
+
+        print("Third exit: Final Exit")
+        
+        yield False
+
+
+        print("Third exit: Final Exit")
+        yield True
+
+else:
+    def exit_event_handler():
+        print("First exit: kernel booted")
+
+        if args.save_checkpoint:
+            print(f"Saving checkpoint to {args.checkpoint_path} ...")
+            simulator.save_checkpoint(args.checkpoint_path)
+        else:
+            print("Checkpoint saving disabled (skipping).")
+
+        yield False
+
+        print("Second exit: Entering benchamrk ROI")
+
+        print("Switching from Atomic Cores to SimpleTiming Cores...")
+        processor.switch()
+
+        yield False
+        
+        print("Third exit: Final Exit")
+        yield True
+
+
+# Add set_num_processes here
+# multisim.set_num_processes(2)
+
+
+import json 
+
+
+# -------------------------------------------------------
+# Cache hierarchy setup
+# -------------------------------------------------------
+if args.cache_class == "no-cache":
+    from gem5.components.cachehierarchies.classic.no_cache import NoCache
+
+    cache_hierarchy = NoCache()
+
+elif args.cache_class == "chi":
+
+    # with open(args.config_dir, "r") as f:
+    #     cache_config = json.load(f)
+
+    # l1_config = cache_config["L1"]
+    # l2_config = cache_config["L2"]
+    # l3_config = cache_config["L3"]
+
+    # Custom CHI-based hierarchy
+    from config.chi.l3_cache_hierarchy import L3CacheHierarchy
+    
+    cache_hierarchy = L3CacheHierarchy(
+        l1_config=l1_config,
+        l2_config=l2_config,
+        l3_config=l3_config,
+        cores_per_cluster=args.cores_per_cluster,
+    )
+
+elif args.cache_class == "mesi-three-level": 
+    from gem5.components.cachehierarchies.ruby.mesi_three_level_cache_hierarchy import (
+            MESIThreeLevelCacheHierarchy,
+    )
+
+    cache_hierarchy = MESIThreeLevelCacheHierarchy(
+        l1i_size="32KiB",
+        l1i_assoc=8,
+        l1d_size="32KiB",
+        l1d_assoc=8,
+        l2_size="256KiB",
+        l2_assoc=4,
+        l3_size="16MiB",
+        l3_assoc=16,
+        num_l3_banks=1,
+    )
+else:
+    raise ValueError(f"The cache class {args.cache_class} is not supported.")
+
+
+# -------------------------------------------------------
 # Board setup
 # -------------------------------------------------------
 board = RiscvBoard(
@@ -263,48 +449,6 @@ board.set_kernel_disk_workload(
 )
 
 
-# -------------------------------------------------------
-# Exit event handler
-# -------------------------------------------------------
-
-if args.load_checkpoint:
-    def exit_event_handler():
-
-        print("Second exit: Entering benchamrk ROI")
-
-        print("Switching from Atomic Cores to SimpleTiming Cores...")
-        processor.switch()
-
-        yield False
-        
-        print("Third exit: Final Exit")
-        yield True
-
-else:
-    def exit_event_handler():
-        print("First exit: kernel booted")
-
-        if args.save_checkpoint:
-            print(f"Saving checkpoint to {args.checkpoint_path} ...")
-            simulator.save_checkpoint(args.checkpoint_path)
-        else:
-            print("Checkpoint saving disabled (skipping).")
-
-        yield False
-
-        print("Second exit: Entering benchamrk ROI")
-
-        print("Switching from Atomic Cores to SimpleTiming Cores...")
-        processor.switch()
-
-        yield False
-        
-        print("Third exit: Final Exit")
-        yield True
-
-
-
-
 
 # -------------------------------------------------------
 # Simulator setup
@@ -321,6 +465,8 @@ else:
         board=board,
         on_exit_event={ExitEvent.EXIT: exit_event_handler()},
     )
+
+m5.ticks.fixGlobalFrequency()
 
 
 # Reset statistics
