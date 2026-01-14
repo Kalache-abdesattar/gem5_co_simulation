@@ -27,7 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-
+import math
 from itertools import chain
 from typing import List
 
@@ -96,6 +96,7 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
         l2_config: dict,
         l3_config: dict,
         cores_per_cluster: int,
+        num_l3_slices : int = 1,
     ):
         """
         Args:
@@ -112,6 +113,7 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
         self._l2_config = l2_config
         self._l3_config = l3_config
         self._cores_per_cluster = cores_per_cluster
+        self._num_l3_slices = num_l3_slices
 
         # Cache network reference (will be provided later by the system)
         self._network = None
@@ -133,7 +135,8 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
             self.ruby_system, 
             num_cores, 
             self._cores_per_cluster,
-            board.has_dma_ports()
+            board.has_dma_ports(),
+            self._num_l3_slices
         )
 
         # Network configurations
@@ -141,53 +144,45 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
         self.ruby_system.number_of_virtual_networks = 4
         self.ruby_system.network.number_of_virtual_networks = 4
 
-        num_l3s = 2
-
-        # for i in range(num_l3s):
-        #     l3_node = SharedL3(
-        #         config=self._l3_config,
-        #         network=self.ruby_system.network,
-        #         cache_line_size=board.get_cache_line_size(),
-        #         addr_ranges=[AddrRange(start=0xC0000000, size='3GiB', intlvHighBit=6, intlvBits=1, intlvMatch=i)]
-        #     )
-        #     l3_node.ruby_system = self.ruby_system
-
-        #     self._l3_caches.append(l3_node)
-
-
+        ## Setting up a multi-port L3
         # 1. Access the ranges defined by the X86Board
         # This includes the 0-3GB range and the IO range you shared
         board_ranges = board.mem_ranges 
 
         print("L3CacheHierarchy DEBUG: MEM_RANGES " + str(board_ranges))
 
-        num_l3s = 2
+        # 1. Determine bits needed for interleaving (e.g., 1 bit for 2 slices, 2 bits for 4 slices)
+        num_slices = self._num_l3_slices
+        if not (num_slices > 0 and (num_slices & (num_slices - 1)) == 0):
+            raise ValueError(f"num_l3_slices ({num_slices}) must be a power of 2 for interleaving.")
 
-        for i in range(num_l3s):
+        intlv_bits = int(math.log2(num_slices))
+
+        for i in range(num_slices):
             l3_interleaved_ranges = []
             
-            # 2. For every range the board has, create an interleaved version for this L3 bank
+            # 2. Create interleaved version for this specific bank
             for r in board_ranges:
                 l3_interleaved_ranges.append(
                     AddrRange(
                         start=r.start,
                         end=r.end,
-                        intlvHighBit=6, # 64-byte alignment
-                        intlvBits=1,    # 2^1 = 2 nodes
-                        intlvMatch=i     # Bank 0 matches 0, Bank 1 matches 1
+                        intlvHighBit=6,   # Bit 6 = 64-byte alignment
+                        intlvBits=intlv_bits, 
+                        intlvMatch=i      # This specific slice handles index 'i'
                     )
                 )
 
-            # 3. Pass these specific ranges to your SharedL3 instance
-            l3_node = SharedL3(
+            # 3. Initialize the SharedL3 slice
+            l3_slice = SharedL3(
                 config=self._l3_config,
                 network=self.ruby_system.network,
                 cache_line_size=board.get_cache_line_size(),
                 addr_ranges=l3_interleaved_ranges 
             )
             
-            l3_node.ruby_system = self.ruby_system
-            self._l3_caches.append(l3_node)
+            l3_slice.ruby_system = self.ruby_system
+            self._l3_caches.append(l3_slice)
 
             
         num_l2_caches = num_cores // self._cores_per_cluster 
