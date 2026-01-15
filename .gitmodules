@@ -4,6 +4,3 @@
 [submodule "ext/mcpat"]
 	path = ext/mcpat
 	url = https://github.com/HewlettPackard/mcpat.git
-[submodule "ext/cacti"]
-	path = ext/cacti
-	url = https://github.com/HewlettPackard/cacti.git
