@@ -44,7 +44,10 @@ from m5.objects import (
     StridePrefetcher,
     TaggedPrefetcher,
     BOPPrefetcher,
+    SrcClockDomain,
+    VoltageDomain,
 )
+
 from m5.objects.SubSystem import SubSystem
 
 from gem5.coherence_protocol import CoherenceProtocol
@@ -130,13 +133,34 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
 
         num_cores = len(board.get_processor().get_cores())
 
+        # 1. Create a Clock Domain for the NoC and L3
+        # We fetch the core frequency and divide it by 2.
+        core_clk_domain = board.get_clock_domain()
+        core_period_ticks = core_clk_domain.clock[0].value
+        sys_period_ticks = core_period_ticks * 2
+        sys_period_freq = 1 / sys_period_ticks
+
+        sys_voltage_domain = VoltageDomain(voltage='1.0V')   # TODO: THE VALUE OF THE VOLTAGE DOMAIN DOES NOT MAKE A DIFFERENCE TO OUT EXPERIMENT
+                                                             # CHANGE IT WHEN WE WANT TO MEASURE POWER
+
+        # Note: core_clk_domain.clock is usually a list of Tick values or a string
+        # We can also explicitly set it if you know your target (e.g., '1.5GHz')
+        self.sys_clk_domain = SrcClockDomain(
+            clock = f"{sys_period_freq}Hz", 
+            voltage_domain = sys_voltage_domain
+        )
+        
+        print("[L3_CACHE_HIERARCHY]: THE CLOCK PERIOD OF L3/NoC CLOCK DOMAIN: " + str(self.sys_clk_domain.clock[0].value))
+        print("[L3_CACHE_HIERARCHY]: THE CLOCK PERIOD OF CORE CLOCK DOMAIN: " + str(core_clk_domain.clock[0].value))
+
         # Ruby's global network.
         self.ruby_system.network = ChiNoC(
             self.ruby_system, 
             num_cores, 
             self._cores_per_cluster,
             board.has_dma_ports(),
-            self._num_l3_slices
+            self._num_l3_slices,
+            clk_domain = self.sys_clk_domain
         )
 
         # Network configurations
@@ -149,12 +173,12 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
         # This includes the 0-3GB range and the IO range you shared
         board_ranges = board.mem_ranges 
 
-        print("L3CacheHierarchy DEBUG: MEM_RANGES " + str(board_ranges))
+        print("[L3_CACHE_HIERARCHY]: MEM_RANGES " + str(board_ranges))
 
         # 1. Determine bits needed for interleaving (e.g., 1 bit for 2 slices, 2 bits for 4 slices)
         num_slices = self._num_l3_slices
         if not (num_slices > 0 and (num_slices & (num_slices - 1)) == 0):
-            raise ValueError(f"num_l3_slices ({num_slices}) must be a power of 2 for interleaving.")
+            raise ValueError(f"[L3_CACHE_HIERARCHY]: num_l3_slices ({num_slices}) must be a power of 2 for interleaving.")
 
         intlv_bits = int(math.log2(num_slices))
 
@@ -180,6 +204,8 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
                 cache_line_size=board.get_cache_line_size(),
                 addr_ranges=l3_interleaved_ranges 
             )
+
+            l3_slice.clk_domain = self.sys_clk_domain
             
             l3_slice.ruby_system = self.ruby_system
             self._l3_caches.append(l3_slice)
