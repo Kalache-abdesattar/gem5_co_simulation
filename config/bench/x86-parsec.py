@@ -95,14 +95,18 @@ l1_config = {
     "size": "64KiB",
     "assoc": 4,
     "latencies": {
-        "read_hit_latency": 3,
-        "read_miss_latency": 4,
-        "atomic_op_latency": 5,
-        "write_fe_latency": 3,
-        "write_be_latency": 3,
-        "fill_latency": 4,
-        "snp_latency": 4,
-        "snp_inv_latency": 4,
+        "allocation_latency": 1,
+        "read_hit_latency": 1,
+        "read_miss_latency": 1,
+        "atomic_op_latency": 1,
+        "write_fe_latency": 1,
+        "write_be_latency": 1,
+        "fill_latency": 2,
+        "snp_latency": 1,
+        "snp_inv_latency": 1,
+        "data_access_latency": 4,
+        "tag_access_Latency": 2,
+        "atomic_latency": 0,  # already included in atomic_op_latency
     },
     "TBE_params": {
         "number_of_TBEs": 16,
@@ -135,14 +139,18 @@ l2_config = {
     "size": "512KiB",
     "assoc": 8,
     "latencies": {
-        "read_hit_latency": 12,
-        "read_miss_latency": 13,
-        "atomic_op_latency": 14,
-        "write_fe_latency": 12,
-        "write_be_latency": 10,
-        "fill_latency": 12,
-        "snp_latency": 12,
-        "snp_inv_latency": 12,
+        "allocation_latency": 1,
+        "read_hit_latency": 3,
+        "read_miss_latency": 4,
+        "atomic_op_latency": 2,
+        "write_fe_latency": 2,
+        "write_be_latency": 2,
+        "fill_latency": 4,
+        "snp_latency": 3,
+        "snp_inv_latency": 3,
+        "data_access_latency": 7,
+        "tag_access_Latency": 3,
+        "atomic_latency": 0,  # already included in atomic_op_latency
     },
     "TBE_params": {
         "number_of_TBEs": 32,
@@ -173,16 +181,20 @@ l2_config = {
 
 l3_config = {
     "size": "16MiB",
-    "assoc": 8,
+    "assoc": 16,
     "latencies": {
-        "read_hit_latency": 24,
-        "read_miss_latency": 25,
-        "atomic_op_latency": 27,
-        "write_fe_latency": 24,
-        "write_be_latency": 24,
-        "fill_latency": 24,
-        "snp_latency": 24,
-        "snp_inv_latency": 24,
+        "allocation_latency": 2,
+        "read_hit_latency": 4,
+        "read_miss_latency": 5,
+        "atomic_op_latency": 6,
+        "write_fe_latency": 2,
+        "write_be_latency": 2,
+        "fill_latency": 4,
+        "snp_latency": 5,
+        "snp_inv_latency": 5,
+        "data_access_latency": 11,
+        "tag_access_Latency": 3,
+        "atomic_latency": 0,  # already included in atomic_op_latency
     },
     "TBE_params": {
         "number_of_TBEs": 32,
@@ -237,7 +249,7 @@ size_choices = ["simsmall", "simmedium", "simlarge"]
 # -------------------------------------------------------
 # Argument parsing
 # -------------------------------------------------------
-parser = argparse.ArgumentParser(description="Run RISCV Ubuntu FS simulation with CHI cache hierarchy")
+parser = argparse.ArgumentParser(description="Run X86 Ubuntu with Parsec benchmark image FS simulation with CHI cache hierarchy")
 parser.add_argument("--num-cores", type=int, default=4, help="Total number of cores")
 parser.add_argument("--cores-per-cluster", type=int, default=1, help="Cores per CHI cluster, a cluster is the group of cores sharing an L2")
 parser.add_argument(
@@ -284,20 +296,20 @@ elif args.cache_class == "chi":
     # Custom CHI-based hierarchy
     from config.chi.l3_cache_hierarchy import L3CacheHierarchy
     from config.chi.chiplet import Chiplet 
-    # cache_hierarchy = L3CacheHierarchy(
-    #     l1_config=l1_config,
-    #     l2_config=l2_config,
-    #     l3_config=l3_config,
-    #     cores_per_cluster=args.cores_per_cluster,
-    # )
-
-    cache_hierarchy = Chiplet(
+    cache_hierarchy = L3CacheHierarchy(
         l1_config=l1_config,
         l2_config=l2_config,
         l3_config=l3_config,
-        cores_per_cluster=1,
-        cores_per_chiplet=4
+        cores_per_cluster=args.cores_per_cluster,
     )
+
+    # cache_hierarchy = Chiplet(
+    #     l1_config=l1_config,
+    #     l2_config=l2_config,
+    #     l3_config=l3_config,
+    #     cores_per_cluster=1,
+    #     cores_per_chiplet=4
+    # )
 
 elif args.cache_class == "mesi-three-level": 
     from gem5.components.cachehierarchies.ruby.mesi_three_level_cache_hierarchy import (
