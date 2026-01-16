@@ -38,13 +38,15 @@ from m5.objects import (
 class ChiNoC(SimpleNetwork):
     """A custom hierarchical network. This doesn't not use garnet -yet-."""
 
-    def __init__(self, ruby_system, num_cores, cores_per_cluster, has_dma_ports, num_l3_slices):
+    def __init__(self, ruby_system, num_cores, cores_per_cluster, has_dma_ports, num_l3_slices, clk_domain):
         super().__init__()
         self.netifs = []
 
         # TODO: These should be in a base class
         # https://gem5.atlassian.net/browse/GEM5-1039
         self.ruby_system = ruby_system
+
+        self.clk_domain = clk_domain
 
         self._num_cores = num_cores
         self._cores_per_cluster = cores_per_cluster
@@ -56,7 +58,7 @@ class ChiNoC(SimpleNetwork):
         """
 
         # Create one router/switch per controller in the system
-        self.routers = [Switch(router_id=i) for i in range(len(controllers))]
+        self.routers = [Switch(router_id=i, ext_routing_latency=1, int_routing_latency=1) for i in range(len(controllers))]
 
         # Make a link from each controller to the router. The link goes
         # externally to the network.
