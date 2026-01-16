@@ -70,11 +70,17 @@ class PrivateL1MOESICache(AbstractNode):
 
         super().__init__(network, cache_line_size)
 
+        lat_cfg = config.get("latencies", {})
+
         # ---------- Cache ----------
         self.cache = RubyCache(
             size=config["size"],
             assoc=config["assoc"],
             start_index_bit=self.getBlockSizeBits(),
+            tagAccessLatency=lat_cfg.get("tag_access_Latency"),
+            dataAccessLatency=lat_cfg.get("data_access_latency"),
+            atomicLatency=lat_cfg.get("atomic_latency"),
+            block_size="64B"
         )
 
 

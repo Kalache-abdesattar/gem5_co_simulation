@@ -72,11 +72,17 @@ class SharedL3(AbstractNode):
 
         super().__init__(network, cache_line_size)
 
+        lat_cfg = config.get("latencies", {})
+        
         # Cache setup
         self.cache = RubyCache(
             size=config["size"],
             assoc=config["assoc"],
             replacement_policy=config.get("replacement_policy", RRIPRP()),
+            tagAccessLatency=lat_cfg.get("tag_access_Latency"),
+            dataAccessLatency=lat_cfg.get("data_access_latency"),
+            atomicLatency=lat_cfg.get("atomic_latency"),
+            block_size="64B"
         )
 
         print(type(config["size"]))
@@ -131,7 +137,6 @@ class SharedL3(AbstractNode):
 
 
         # ---------- Latency Configuration ----------
-        lat_cfg = config.get("latencies", {})
         self.read_hit_latency = lat_cfg.get("read_hit_latency", 39)
         self.read_miss_latency = lat_cfg.get("read_miss_latency", 41)
         self.atomic_op_latency = lat_cfg.get("atomic_op_latency", 39)
