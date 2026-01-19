@@ -244,6 +244,19 @@ gem5/util/term/m5term 3456
 /root/gem5~ ./bin/ft.S.x
 ```
 
+### Enabling Cache Miss Classification
+Cache Miss Classification is disabled by default for performance considerations. To enable it, add these to the self.cache instantiation in the cache node config (all configs are under *config/chi/*). 
+Note: **self.sta_size** should preferably be > tagArraySize.
+
+```python
+self.cache = RubyCache(
+    ...
+    ...
+    self.enable_shadow_tags = True,
+    sta_size = 2048
+)
+```
+
 ### Gromacs
 Similar as before, just point gem5 to **images/disk/riscv-ubuntu-24.04-img**:
 ```bash
