@@ -252,7 +252,7 @@ Note: **self.sta_size** should preferably be > tagArraySize.
 self.cache = RubyCache(
     ...
     ...
-    self.enable_shadow_tags = True,
+    enable_shadow_tags = True,
     sta_size = 2048
 )
 ```
