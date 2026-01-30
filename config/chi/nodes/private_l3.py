@@ -82,7 +82,7 @@ class PrivateL3(AbstractNode):
             tagAccessLatency=lat_cfg.get("tag_access_Latency"),
             dataAccessLatency=lat_cfg.get("data_access_latency"),
             atomicLatency=lat_cfg.get("atomic_latency"),
-            block_size=64
+            block_size="64B"
         )
 
 
