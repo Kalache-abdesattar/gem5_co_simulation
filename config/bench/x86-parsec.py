@@ -296,20 +296,20 @@ elif args.cache_class == "chi":
     # Custom CHI-based hierarchy
     from config.chi.l3_cache_hierarchy import L3CacheHierarchy
     from config.chi.chiplet import Chiplet 
-    cache_hierarchy = L3CacheHierarchy(
-        l1_config=l1_config,
-        l2_config=l2_config,
-        l3_config=l3_config,
-        cores_per_cluster=args.cores_per_cluster,
-    )
-
-    # cache_hierarchy = Chiplet(
+    # cache_hierarchy = L3CacheHierarchy(
     #     l1_config=l1_config,
     #     l2_config=l2_config,
     #     l3_config=l3_config,
-    #     cores_per_cluster=1,
-    #     cores_per_chiplet=4
+    #     cores_per_cluster=args.cores_per_cluster,
     # )
+
+    cache_hierarchy = Chiplet(
+        l1_config=l1_config,
+        l2_config=l2_config,
+        l3_config=l3_config,
+        cores_per_cluster=1,
+        cores_per_chiplet=8
+    )
 
 elif args.cache_class == "mesi-three-level": 
     from gem5.components.cachehierarchies.ruby.mesi_three_level_cache_hierarchy import (
@@ -357,9 +357,10 @@ default_args = [
     "earlyprintk=ttyS0",
     "console=ttyS0",
     "lpj=7999923",
-    "root={root_value}",
-    "disk_device={disk_device}",
+    "root=/dev/hda1",
+    "disk_device=/dev/hda",
 ]
+
 
 
 # -------------------------------------------------------
@@ -389,7 +390,9 @@ board = X86Board(
 command = (
     f"cd /home/gem5/parsec-benchmark;"
     + "source env.sh;"
-    + f"parsecmgmt -a run -p {args.benchmark} -c gcc-hooks -i {args.size}         -n 2;"
+    + "echo THE NUMBER OF THREADS IS;"
+    + "nproc;"
+    + f"parsecmgmt -a run -p {args.benchmark} -c gcc-hooks -i {args.size}         -n -{args.num_cores};"
     + "sleep 5;"
     + "m5 exit;"
 )
@@ -403,7 +406,7 @@ board.set_kernel_disk_workload(
         "x86-linux-kernel-4.19.83", resource_version="1.0.0"
     ),
 
-    disk_image=obtain_resource("x86-parsec", resource_version="1.0.0"),
+    disk_image=DiskImageResource(local_path="/root/.cache/gem5/x86-parsec-1.0.0"),
 
     readfile_contents=command,
 )
