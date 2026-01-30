@@ -392,7 +392,7 @@ command = (
     + "source env.sh;"
     + "echo THE NUMBER OF THREADS IS;"
     + "nproc;"
-    + f"parsecmgmt -a run -p {args.benchmark} -c gcc-hooks -i {args.size}         -n -{args.num_cores};"
+    + f"parsecmgmt -a run -p {args.benchmark} -c gcc-hooks -i {args.size} -n {args.num_cores};"
     + "sleep 5;"
     + "m5 exit;"
 )

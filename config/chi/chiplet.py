@@ -44,6 +44,8 @@ from m5.objects import (
     StridePrefetcher,
     TaggedPrefetcher,
     BOPPrefetcher,
+    SrcClockDomain,
+    VoltageDomain,
 )
 from m5.objects.SubSystem import SubSystem
 
@@ -130,13 +132,34 @@ class Chiplet(AbstractRubyCacheHierarchy):
         num_cores = len(board.get_processor().get_cores())
         num_chiplets = num_cores // self._cores_per_chiplet
 
+                # 1. Create a Clock Domain for the NoC and L3
+        # We fetch the core frequency and divide it by 2.
+        core_clk_domain = board.get_clock_domain()
+        core_period_ticks = core_clk_domain.clock[0].value
+        sys_period_ticks = core_period_ticks * 2
+        sys_period_freq = 1 / sys_period_ticks
+
+        sys_voltage_domain = VoltageDomain(voltage='1.0V')   # TODO: THE VALUE OF THE VOLTAGE DOMAIN DOES NOT MAKE A DIFFERENCE TO OUT EXPERIMENT
+                                                             # CHANGE IT WHEN WE WANT TO MEASURE POWER
+
+        # Note: core_clk_domain.clock is usually a list of Tick values or a string
+        # We can also explicitly set it if you know your target (e.g., '1.5GHz')
+        self.sys_clk_domain = SrcClockDomain(
+            clock = f"{sys_period_freq}Hz", 
+            voltage_domain = sys_voltage_domain
+        )
+        
+        print("[L3_CACHE_HIERARCHY]: THE CLOCK PERIOD OF L3/NoC CLOCK DOMAIN: " + str(self.sys_clk_domain.clock[0].value))
+        print("[L3_CACHE_HIERARCHY]: THE CLOCK PERIOD OF CORE CLOCK DOMAIN: " + str(core_clk_domain.clock[0].value))
+
         # Ruby's global network.
         self.ruby_system.network = ChiGlobalNoC(
             self.ruby_system, 
             num_cores, 
             self._cores_per_cluster,
             board.has_dma_ports(), 
-            self._cores_per_chiplet
+            self._cores_per_chiplet,
+            clk_domain = self.sys_clk_domain
         )
 
         # Network configurations
@@ -151,10 +174,13 @@ class Chiplet(AbstractRubyCacheHierarchy):
         hn_directory = SimpleDirectory(
             network=self.ruby_system.network,
             cache_line_size=board.get_cache_line_size(),
-            clk_domain=board.get_clock_domain())
+            clk_domain=self.sys_clk_domain
+        )
+
         hn_directory.ruby_system = self.ruby_system
         hn_directory.downstream_destinations = self.memory_controllers
         
+
         l3_caches = []
         # Create multiple per-chiplet-private L3s
         for i in range(num_chiplets):
@@ -174,6 +200,7 @@ class Chiplet(AbstractRubyCacheHierarchy):
             l3_caches.append(l3_cache)
             l3_caches[i].ruby_system = self.ruby_system
             l3_caches[i].downstream_destinations = [hn_directory] #+ self.memory_controllers
+            l3_caches[i].clk_domain = self.sys_clk_domain
 
         
         num_l2_caches_per_chipet = num_cores // self._cores_per_cluster // num_chiplets
