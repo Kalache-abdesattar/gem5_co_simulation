@@ -92,8 +92,8 @@ requires(
 
 
 l1_config = {
-    "size": "64KiB",
-    "assoc": 4,
+    "size": "32KiB",
+    "assoc": 8,
     "latencies": {
         "allocation_latency": 1,
         "read_hit_latency": 1,
@@ -105,14 +105,14 @@ l1_config = {
         "snp_latency": 1,
         "snp_inv_latency": 1,
         "data_access_latency": 4,
-        "tag_access_Latency": 2,
+        "tag_access_Latency": 1,
         "atomic_latency": 0,  # already included in atomic_op_latency
     },
     "TBE_params": {
-        "number_of_TBEs": 16,
-        "number_of_repl_TBEs": 16,
+        "number_of_TBEs": 8,
+        "number_of_repl_TBEs": 8,
         "number_of_snoop_TBEs": 4,
-        "number_of_DVM_TBEs": 16,
+        "number_of_DVM_TBEs": 8,
         "number_of_DVM_snoop_TBEs": 4,
         "unify_repl_TBEs": False,
     },
@@ -133,10 +133,10 @@ l1_config = {
         "dealloc_backinv_shared": True,
     },
 }
-
-
+ 
+ 
 l2_config = {
-    "size": "512KiB",
+    "size": "256KiB",
     "assoc": 8,
     "latencies": {
         "allocation_latency": 1,
@@ -148,14 +148,14 @@ l2_config = {
         "fill_latency": 4,
         "snp_latency": 3,
         "snp_inv_latency": 3,
-        "data_access_latency": 7,
-        "tag_access_Latency": 3,
+        "data_access_latency": 6,
+        "tag_access_Latency": 2,
         "atomic_latency": 0,  # already included in atomic_op_latency
     },
     "TBE_params": {
-        "number_of_TBEs": 32,
-        "number_of_repl_TBEs": 32,
-        "number_of_snoop_TBEs": 1,
+        "number_of_TBEs": 8,
+        "number_of_repl_TBEs": 8,
+        "number_of_snoop_TBEs": 4,
         "number_of_DVM_TBEs": 1,
         "number_of_DVM_snoop_TBEs": 1,
         "unify_repl_TBEs": False,
@@ -177,8 +177,8 @@ l2_config = {
         "dealloc_backinv_shared": True,
     },
 }
-
-
+ 
+ 
 l3_config = {
     "size": "16MiB",
     "assoc": 16,
@@ -197,9 +197,9 @@ l3_config = {
         "atomic_latency": 0,  # already included in atomic_op_latency
     },
     "TBE_params": {
-        "number_of_TBEs": 32,
-        "number_of_repl_TBEs": 32,
-        "number_of_snoop_TBEs": 1,
+        "number_of_TBEs": 64,
+        "number_of_repl_TBEs": 64,
+        "number_of_snoop_TBEs": 16,
         "number_of_DVM_TBEs": 1,
         "number_of_DVM_snoop_TBEs": 1,
         "unify_repl_TBEs": False,
@@ -221,7 +221,6 @@ l3_config = {
         "dealloc_backinv_shared": False,
     },
 }
-
 
 
 # Following are the list of benchmark programs for parsec.
@@ -414,7 +413,7 @@ board.set_kernel_disk_workload(
 
 
 # -------------------------------------------------------
-# Exit event handler
+# event handler
 # -------------------------------------------------------
 
 # functions to handle different exit events during the simuation
@@ -434,7 +433,44 @@ def handle_workend():
     yield True
 
 
+import os
+import shutil
 
+def handle_exit():
+    global count 
+    count = 0
+    # Get the directory where gem5 is currently outputting files (m5out)
+    root_path = os.getcwd()
+    stats_dir = m5.options.outdir 
+
+    stats_path = os.path.join(root_path, stats_dir)
+
+    stats_src = os.path.join(stats_path, "stats.txt")
+
+    print("THE PATH OF THE STATS: " + stats_src)
+
+
+    while(1):
+        count += 1
+        print(f"[PROGRESS] EXIT #{count}")
+        
+        # Batching: Wait until all 16 cores reach the checkpoint
+        if(count % args.num_cores == 0):
+            print("\n[PROGESS] Reached Stats Dump Checkpoint...")
+            checkpoint_id = count // args.num_cores
+            
+            # Paths for the main stats file and our unique backup
+            stats_dst = os.path.join(stats_path, f"stats_checkpoint_{checkpoint_id}.txt")
+
+            # 1. Dump current counters into the main stats.txt
+            m5.stats.dump()
+            
+            # 2. Copy stats.txt to a unique name so it's not clobbered
+            if os.path.exists(stats_src):
+                shutil.copy(stats_src, stats_dst)
+                print(f"--> Successfully saved snapshot: {stats_dst}")
+
+        yield False
 
 # -------------------------------------------------------
 # Simulator setup
@@ -446,6 +482,7 @@ simulator = Simulator(
     on_exit_event={
         ExitEvent.WORKBEGIN: handle_workbegin(),
         ExitEvent.WORKEND: handle_workend(),
+        ExitEvent.EXIT: handle_exit(),
     },
 )
 
