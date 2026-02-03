@@ -39,7 +39,7 @@ from m5.objects import (
 class ChiGlobalNoC(SimpleNetwork):
     """A custom hierarchical network. This doesn't not use garnet -yet-."""
 
-    def __init__(self, ruby_system, num_cores, cores_per_cluster, has_dma_ports, cores_per_chiplet, clk_domain):
+    def __init__(self, ruby_system, num_cores, cores_per_cluster, has_dma_ports, cores_per_chiplet, num_l3_slices, clk_domain):
         super().__init__()
         self.netifs = []
 
@@ -48,11 +48,12 @@ class ChiGlobalNoC(SimpleNetwork):
         self.ruby_system = ruby_system
 
         self.clk_domain = clk_domain
-        
+
         self._num_cores = num_cores
         self._cores_per_cluster = cores_per_cluster
         self._has_dma_ports = has_dma_ports
         self._cores_per_chiplet = cores_per_chiplet
+        self._num_l3_slices = num_l3_slices
 
     def connectControllers(self, controllers: dict):
         """
@@ -101,18 +102,19 @@ class ChiGlobalNoC(SimpleNetwork):
             for i in range(num_l2s_per_chiplet):
                 l2_idx = 2 * self._num_cores + num_l2s_per_chiplet * c + i 
 
-                link_count += 1
-                int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l2_idx], dst_node=self.routers[l3_idx+c]))
-                
-                link_count += 1
-                int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l3_idx+c], dst_node=self.routers[l2_idx]))
+                for k in range(self._num_l3_slices):
+                    link_count += 1
+                    int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l2_idx], dst_node=self.routers[l3_idx+c*self._num_l3_slices+k]))
+                    
+                    link_count += 1
+                    int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l3_idx+c*self._num_l3_slices+k], dst_node=self.routers[l2_idx]))
 
         
-        hn_directory = l3_idx + num_chiplets
+        hn_directory = l3_idx + num_chiplets * self._num_l3_slices
 
         mem_ctrl_idx = hn_directory + 1
 
-        for c in range(num_chiplets):
+        for c in range(num_chiplets*self._num_l3_slices):
             # L3  ↔ HN Directory 
             link_count += 1
             int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l3_idx+c], dst_node=self.routers[hn_directory]))

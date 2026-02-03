@@ -27,7 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-
+import math
 from itertools import chain
 from typing import List
 
@@ -46,6 +46,7 @@ from m5.objects import (
     BOPPrefetcher,
     SrcClockDomain,
     VoltageDomain,
+    AddrRange,
 )
 from m5.objects.SubSystem import SubSystem
 
@@ -99,7 +100,8 @@ class Chiplet(AbstractRubyCacheHierarchy):
         l2_config: dict,
         l3_config: dict,
         cores_per_cluster: int,
-        cores_per_chiplet: int
+        cores_per_chiplet: int, 
+        num_l3_ports: int = 1,
     ):
         """
         Args:
@@ -117,9 +119,12 @@ class Chiplet(AbstractRubyCacheHierarchy):
         self._l3_config = l3_config
         self._cores_per_cluster = cores_per_cluster
         self._cores_per_chiplet = cores_per_chiplet
+        self._num_l3_ports = num_l3_ports
 
         # Cache network reference (will be provided later by the system)
         self._network = None
+
+        self._l3_caches = []
 
 
     def incorporate_cache(self, board: AbstractBoard):
@@ -159,6 +164,7 @@ class Chiplet(AbstractRubyCacheHierarchy):
             self._cores_per_cluster,
             board.has_dma_ports(), 
             self._cores_per_chiplet,
+            self._num_l3_ports,
             clk_domain = self.sys_clk_domain
         )
 
@@ -166,6 +172,7 @@ class Chiplet(AbstractRubyCacheHierarchy):
         # virtual networks: 0=request, 1=snoop, 2=response, 3=data
         self.ruby_system.number_of_virtual_networks = 4
         self.ruby_system.network.number_of_virtual_networks = 4
+
 
         # Create the coherent side of the memory controllers
         self.memory_controllers = self._create_memory_controllers(board)
@@ -181,34 +188,58 @@ class Chiplet(AbstractRubyCacheHierarchy):
         hn_directory.downstream_destinations = self.memory_controllers
         
 
-        l3_caches = []
-        # Create multiple per-chiplet-private L3s
-        for i in range(num_chiplets):
-            # if i != num_chiplets-1:
-            l3_cache = PrivateL3(
-                config=self._l3_config,
-                network=self.ruby_system.network,
-                cache_line_size=board.get_cache_line_size()
-            )
-            # else:
-            #     l3_cache = SharedL3(
-            #         config=self._l3_config,
-            #         network=self.ruby_system.network,
-            #         cache_line_size=board.get_cache_line_size()
-            #     ) 
+        ## Setting up a multi-port L3
+        # 1. Access the ranges defined by the X86Board
+        # This includes the 0-3GB range and the IO range you shared
+        board_ranges = board.mem_ranges 
 
-            l3_caches.append(l3_cache)
-            l3_caches[i].ruby_system = self.ruby_system
-            l3_caches[i].downstream_destinations = [hn_directory] #+ self.memory_controllers
-            l3_caches[i].clk_domain = self.sys_clk_domain
+        print("[L3_CACHE_HIERARCHY]: MEM_RANGES " + str(board_ranges))
+
+        # 1. Determine bits needed for interleaving (e.g., 1 bit for 2 slices, 2 bits for 4 slices)
+        num_slices = self._num_l3_ports
+        if not (num_slices > 0 and (num_slices & (num_slices - 1)) == 0):
+            raise ValueError(f"[L3_CACHE_HIERARCHY]: num_l3_slices ({num_slices}) must be a power of 2 for interleaving.")
+
+        intlv_bits = int(math.log2(num_slices))
+
+        for j in range(num_chiplets):
+            for i in range(num_slices):
+                l3_interleaved_ranges = []
+                
+                # 2. Create interleaved version for this specific bank
+                for r in board_ranges:
+                    l3_interleaved_ranges.append(
+                        AddrRange(
+                            start=r.start,
+                            end=r.end,
+                            intlvHighBit=6,   # Bit 6 = 64-byte alignment
+                            intlvBits=intlv_bits, 
+                            intlvMatch=i      # This specific slice handles index 'i'
+                        )
+                    )
+
+                # 3. Initialize the SharedL3 slice
+                l3_slice = PrivateL3(
+                    config=self._l3_config,
+                    network=self.ruby_system.network,
+                    cache_line_size=board.get_cache_line_size(),
+                    addr_ranges=l3_interleaved_ranges 
+                )
+
+                l3_slice.clk_domain = self.sys_clk_domain
+                
+                l3_slice.ruby_system = self.ruby_system
+                l3_slice.downstream_destinations = [hn_directory]
+
+                self._l3_caches.append(l3_slice)
 
         
-        num_l2_caches_per_chipet = num_cores // self._cores_per_cluster // num_chiplets
+        num_l2_caches_per_chiplet = num_cores // self._cores_per_cluster // num_chiplets
         l2_caches = [[] for _ in range(num_chiplets)]
         l2_prefetchers = [[] for _ in range(num_chiplets)]
         
         for c in range(num_chiplets):
-            for i in range(num_l2_caches_per_chipet): 
+            for i in range(num_l2_caches_per_chiplet): 
                 # Create l2_prefetchers objects to be passed to the L2 objects
                 l2_prefetcher = BOPPrefetcher(latency=1, cache_snoop=False)
                 l2_prefetchers[c].append(l2_prefetcher)
@@ -225,7 +256,7 @@ class Chiplet(AbstractRubyCacheHierarchy):
                 l2_caches[c][i].ruby_system = self.ruby_system
 
                 # In CHI, you must explicitly set downstream controllers
-                l2_caches[c][i].downstream_destinations = [l3_caches[c]]
+                l2_caches[c][i].downstream_destinations = self._l3_caches[c*num_slices: (c+1)*num_slices]
 
 
         # Construct L1 prefetchers' dictionary lists
@@ -249,7 +280,7 @@ class Chiplet(AbstractRubyCacheHierarchy):
 
         # Create the DMA Controllers, if required as in FS mode
         if board.has_dma_ports():
-            dma_controllers = self._create_dma_controllers(board, l3_caches[0])
+            dma_controllers = self._create_dma_controllers(board, self._l3_caches[0])
             self.ruby_system.num_of_sequencers = len(
                 self.core_clusters
             ) * 2 + len(dma_controllers)
@@ -265,7 +296,7 @@ class Chiplet(AbstractRubyCacheHierarchy):
         print("The length of L2 CACHE controllers : " + str(len(l2_caches)))
         print("The length of L2 CACHE controllers : " + str(len(l2_caches[0])))
 
-        controllers = list(chain.from_iterable([(cluster.dcache, cluster.icache) for cluster in self.core_clusters])) + list(chain.from_iterable(l2_caches)) + l3_caches + [hn_directory] + self.memory_controllers + dma_controllers
+        controllers = list(chain.from_iterable([(cluster.dcache, cluster.icache) for cluster in self.core_clusters])) + list(chain.from_iterable(l2_caches)) + self._l3_caches + [hn_directory] + self.memory_controllers + dma_controllers
         
         self.ruby_system.network.connectControllers(controllers)
 

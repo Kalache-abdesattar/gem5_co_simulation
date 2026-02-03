@@ -44,7 +44,7 @@ from gem5.components.cachehierarchies.chi.nodes.abstract_node import AbstractNod
 class PrivateL3(AbstractNode):
     """A home node (HNF) with a shared cache"""
 
-    def __init__(self, network: RubyNetwork, cache_line_size: int, config: dict):
+    def __init__(self, network: RubyNetwork, cache_line_size: int, config: dict, addr_ranges: list = None):
         """
         Args:
             config (dict): Configuration dictionary containing:
@@ -92,6 +92,8 @@ class PrivateL3(AbstractNode):
         self.use_prefetcher = False
         self.prefetcher = NULL
 
+        if addr_ranges:
+            self.addr_ranges = addr_ranges
 
         # Home Node (HNF) flags
         self.is_HN = False
