@@ -262,6 +262,9 @@ parser.add_argument(
     "--mem-size", type=str, default="3GiB", help="Memory size (e.g., 2GiB, 8GiB)"
 )
 
+parser.add_argument(
+    "--cores-per-chiplet", type=int, default=8, help="Cores per chiplet (aka cluster)"
+)
 # The arguments accepted are the benchmark name and the simulation size.
 
 parser.add_argument(
@@ -307,7 +310,7 @@ elif args.cache_class == "chi":
         l2_config=l2_config,
         l3_config=l3_config,
         cores_per_cluster=1,
-        cores_per_chiplet=8
+        cores_per_chiplet=args.cores_per_chiplet,
     )
 
 elif args.cache_class == "mesi-three-level": 
@@ -405,7 +408,7 @@ board.set_kernel_disk_workload(
         "x86-linux-kernel-4.19.83", resource_version="1.0.0"
     ),
 
-    disk_image=DiskImageResource(local_path="/root/.cache/gem5/x86-parsec-1.0.0"),
+    disk_image=DiskImageResource(local_path="/mnt/sim/x86-parsec-1.0.0"),
 
     readfile_contents=command,
 )
@@ -455,7 +458,8 @@ def handle_exit():
         print(f"[PROGRESS] EXIT #{count}")
         
         # Batching: Wait until all 16 cores reach the checkpoint
-        if(count % args.num_cores == 0):
+        #if(count % args.num_cores == 0):
+        if(count):
             print("\n[PROGESS] Reached Stats Dump Checkpoint...")
             checkpoint_id = count // args.num_cores
             
