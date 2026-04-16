@@ -19,6 +19,9 @@ m5out/
 checkpoints/*
 m5out/*
 
+build/
+chi_vip/build/
+
 stats.json
 stats.txt
 stats.h5
