@@ -118,8 +118,8 @@ chi_vip/
 
 | Library | Version | Location |
 |---------|---------|----------|
-| SystemC | 2.3.4   | `/home/dmk/fedora/systemc/` (headers in `src/`, lib in `build/src/`) |
-| SCC (Minres SystemC Components) | — | `/home/dmk/fedora/scc_install/` |
+| SystemC | 2.3.4   | `$PATH_SYSTEMC/` (headers in `src/`, lib in `build/src/`) |
+| SCC (Minres SystemC Components) | — | `$PATH_SCC/` |
 
 SCC provides `chi/chi_tlm.h` which defines the CHI TLM2 extensions:
 - `chi::chi_ctrl_extension` — REQ and RSP channels
@@ -450,20 +450,20 @@ sccom -sc \
     -I chi_vip/chi_shim \
     -I chi_vip/gem5_src \
     -I chi_vip/sc \
-    -I /home/dmk/fedora/scc_install/include \
-    -I /home/dmk/fedora/systemc/src \
+    -I $PATH_SCC/include \
+    -I $PATH_SYSTEMC/src \
     questa_top.cc
 
 # Link
 sccom -link \
     chi_vip/build/libchi_vip.so \
-    -L /home/dmk/fedora/systemc/build/src -lsystemc \
+    -L $PATH_SYSTEMC/build/src -lsystemc \
     -Wl,-rpath,chi_vip/build \
-    -Wl,-rpath,/home/dmk/fedora/systemc/build/src
+    -Wl,-rpath,$PATH_SYSTEMC/build/src
 ```
 
 Alternatively, if using Questa's own SystemC installation, replace
-`-I /home/dmk/fedora/systemc/src` with Questa's bundled TLM headers.
+`-I $PATH_SYSTEMC/src` with Questa's bundled TLM headers.
 
 ### 4. Run the co-simulation
 
