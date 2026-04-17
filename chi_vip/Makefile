@@ -211,6 +211,10 @@ clean:
 
 QUESTA ?= /home/dmk/fedora/questa_24/questasim
 QUESTA_LD := $(QUESTA)/gcc-10.3.0-linux_x86_64/libexec/gcc/x86_64-pc-linux-gnu/10.3.0/ld
+# Questa's bundled g++ 10.3.0: produces GLIBCXX_3.4.26-compatible .so files
+# that vsim can load (Questa's bundled libstdc++ tops out at GLIBCXX_3.4.28).
+# System g++ produces GLIBCXX_3.4.30 symbols which Questa's libstdc++ cannot resolve.
+QUESTA_CXX := $(QUESTA)/gcc-10.3.0-linux_x86_64/bin/g++
 QUESTA_BUILD := $(CURDIR)/questa_build
 QUESTA_OBJDIR := $(QUESTA_BUILD)/work/_sc/linux_x86_64_gcc-10.3.0
 SCCOM_FLAGS := -suppress sccom-94 -O2 -std=c++17 \
@@ -272,21 +276,63 @@ $(QUESTA_BUILD)/work/_sc/linux_x86_64_gcc-10.3.0/questa_cosim_top_ipc.o: \
         | $(QUESTA_BUILD)/work
 	cd $(QUESTA_BUILD) && $(SCCOM) $(CURDIR)/questa/questa_cosim_top_ipc.cc
 
+$(QUESTA_BUILD)/work/_sc/linux_x86_64_gcc-10.3.0/questa_sc_main.o: \
+        questa/questa_sc_main.cc \
+        | $(QUESTA_BUILD)/work
+	cd $(QUESTA_BUILD) && $(SCCOM) $(CURDIR)/questa/questa_sc_main.cc
+
+# systemc.so (standalone vsim, no SV wrapper): uses questa_cosim_top_ipc which
+# has a static questa_top_ipc_vsim instance that vsim connects via co-sim binding.
+# Must link with QUESTA_CXX (gcc-10.3.0) so the .so uses GLIBCXX ≤ 3.4.28,
+# which is what Questa's bundled libstdc++.so.6 provides.  System g++ (14.x)
+# produces GLIBCXX_3.4.30 symbols that Questa's runtime cannot resolve.
 $(QUESTA_BUILD)/work/systemc.so: \
         $(QUESTA_OBJDIR)/chi_ipc.o \
         $(QUESTA_OBJDIR)/questa_top_ipc.o \
         $(QUESTA_OBJDIR)/questa_top_ipc_vsim.o \
         $(QUESTA_OBJDIR)/questa_cosim_top_ipc.o \
         | questa_ld_patch
-	$(CXX) -std=c++17 -shared -fPIC -o $@ $^ \
+	$(QUESTA_CXX) -std=c++17 -shared -fPIC -o $@ $^ \
 	    $(QUESTA)/linux_x86_64/libsystemc_cpp17.a -lrt
+
+# systemc_sv.so (SV-wrapper vsim, questa_top_ipc_wrap.sv as top):
+# uses a minimal sc_main (no static SC instances) because vsim creates the
+# SC instance automatically from the SV instantiation via SC_MODULE_EXPORT.
+# Also linked with QUESTA_CXX for the same GLIBCXX compatibility reason.
+# vsim loads the _sc/ variant of this file; copy it there after building:
+#   cp $(QUESTA_BUILD)/work/systemc_sv.so $(QUESTA_OBJDIR)/systemc.so
+$(QUESTA_BUILD)/work/systemc_sv.so: \
+        $(QUESTA_OBJDIR)/chi_ipc.o \
+        $(QUESTA_OBJDIR)/questa_top_ipc.o \
+        $(QUESTA_OBJDIR)/questa_top_ipc_vsim.o \
+        $(QUESTA_OBJDIR)/questa_sc_main.o \
+        | questa_ld_patch
+	$(QUESTA_CXX) -std=c++17 -shared -fPIC -o $@ $^ \
+	    $(QUESTA)/linux_x86_64/libsystemc_cpp17.a -lrt
+	cp $@ $(QUESTA_OBJDIR)/systemc.so
 
 $(QUESTA_BUILD)/work/questa_top_ipc_wrap: questa/questa_top_ipc_wrap.sv \
         | $(QUESTA_BUILD)/work/systemc.so
 	$(VLOG) $(CURDIR)/questa/questa_top_ipc_wrap.sv
 	touch $@
 
-.PHONY: all run clean cosim-help questa_build questa_ld_patch questa_build_restore_ld
+$(QUESTA_BUILD)/work/tb_ipc_vsim: questa/tb_ipc_vsim.sv \
+        | $(QUESTA_BUILD)/work/questa_top_ipc_wrap
+	$(VLOG) $(CURDIR)/questa/tb_ipc_vsim.sv
+	touch $@
+
+# Build the SV testbench variant (systemc_sv.so + SV files)
+questa_build_sv: $(QUESTA_BUILD)/work/systemc_sv.so $(QUESTA_BUILD)/work/tb_ipc_vsim
+	@echo ""
+	@echo "━━━ questa_build_sv complete ━━━"
+	@echo "  systemc_sv.so : $(QUESTA_BUILD)/work/systemc_sv.so"
+	@echo "  To run the SV testbench:"
+	@echo "    questa_build/shm_create &"
+	@echo "    PATH=$(QUESTA)/bin:\$$PATH vsim -c \\"
+	@echo "        -lib questa_build/work questa_top_ipc_wrap tb_ipc_vsim \\"
+	@echo "        -do 'run -all; quit -f'"
+
+.PHONY: all run clean cosim-help questa_build questa_build_sv questa_ld_patch questa_build_restore_ld
 
 # ── Co-simulation build help ──────────────────────────────────────────────────
 cosim-help:
