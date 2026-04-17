@@ -105,7 +105,7 @@ from config.chi.nodes.memory_controller import MemoryController
 from config.chi.nodes.private_l1_moesi_cache import PrivateL1MOESICache
 from config.chi.nodes.shared_l2 import SharedL2
 from config.chi.nodes.shared_l3 import SharedL3
-from config.chi.nodes.vip_requestor import VIPRequestor
+from config.chi.nodes.vip_requestor import VIPRequestor, VIPRequestorCoSim
 from config.chi.network.chi_noc import ChiNoC
 
 from m5.objects.SubSystem import SubSystem
@@ -133,6 +133,7 @@ class VIPHierarchy(AbstractRubyCacheHierarchy):
         num_vip_nodes: int = 1,
         vip_num_tbes: int = 256,
         vip_num_snoop_tbes: int = 64,
+        vip_shm_names: list = None,
     ):
         super().__init__()
 
@@ -144,6 +145,11 @@ class VIPHierarchy(AbstractRubyCacheHierarchy):
         self._num_vip_nodes      = num_vip_nodes
         self._vip_num_tbes       = vip_num_tbes
         self._vip_num_snoop_tbes = vip_num_snoop_tbes
+        # shm_names[i] is the POSIX shm name for VIP node i.
+        # Defaults to /chi_vip_0, /chi_vip_1, ... if not provided.
+        if vip_shm_names is None:
+            vip_shm_names = [f"/chi_vip_{i}" for i in range(num_vip_nodes)]
+        self._vip_shm_names = vip_shm_names
 
         self._l3_caches = []
         self.vip_nodes  = []
@@ -231,7 +237,33 @@ class VIPHierarchy(AbstractRubyCacheHierarchy):
         ]
 
         # ── VIP requestor nodes ───────────────────────────────────────────────
+        # Use VIPRequestorCoSim (full IPC co-sim) when the gem5 build includes
+        # the VIPController SimObject; fall back to VIPRequestor (standalone).
+        try:
+            _use_cosim = VIPRequestorCoSim is not None
+        except Exception:
+            _use_cosim = False
+
         for i in range(self._num_vip_nodes):
+            shm = self._vip_shm_names[i] if i < len(self._vip_shm_names) \
+                  else f"/chi_vip_{i}"
+            if _use_cosim:
+                try:
+                    vip = VIPRequestorCoSim(
+                        network=self.ruby_system.network,
+                        cache_line_size=board.get_cache_line_size(),
+                        ruby_system=self.ruby_system,
+                        shm_name=shm,
+                        num_tbes=self._vip_num_tbes,
+                        num_snoop_tbes=self._vip_num_snoop_tbes,
+                    )
+                    vip.downstream_destinations = self._l3_caches
+                    self.vip_nodes.append(vip)
+                    continue
+                except RuntimeError:
+                    pass  # VIPController not available; fall through
+
+            # Standalone mode
             vip = VIPRequestor(
                 network=self.ruby_system.network,
                 cache_line_size=board.get_cache_line_size(),
@@ -243,9 +275,13 @@ class VIPHierarchy(AbstractRubyCacheHierarchy):
             vip.downstream_destinations = self._l3_caches
             self.vip_nodes.append(vip)
 
-        print(f"[VIPHierarchy] {self._num_vip_nodes} VIP node(s) added:")
+        mode = "co-sim IPC" if _use_cosim else "standalone shim"
+        print(f"[VIPHierarchy] {self._num_vip_nodes} VIP node(s) added ({mode}):")
         for i, vip in enumerate(self.vip_nodes):
-            print(f"  VIP[{i}]: MachineType_Cache, version={vip.version}")
+            shm = getattr(vip, 'shm_name', self._vip_shm_names[i]
+                          if i < len(self._vip_shm_names) else f"/chi_vip_{i}")
+            print(f"  VIP[{i}]: MachineType_Cache, version={vip.version}"
+                  f"  shm='{shm}'")
         print(f"[VIPHierarchy] L3 slices: {self._num_l3_slices}")
         for i, l3 in enumerate(self._l3_caches):
             print(f"  L3[{i}]: MachineType_Cache, version={l3.version}")
