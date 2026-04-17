@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "chi_flit_pack.hh"
 #include "mem/ruby/system/RubySystem.hh"
 #include "mem/ruby/network/Network.hh"
 #include "mem/ruby/common/MachineID.hh"
@@ -250,8 +251,35 @@ int sc_main(int, char**) {
         ctrl.getReqOut()->dequeue(curTick());
     }
 
-    // ── 2. unpack_req: WriteUniqueFull ────────────────────────────────────────
-    printf("\n[2] unpack_req: WriteUniqueFull\n");
+    // ── 2. unpack_req: Excl=1 round-trips through pack/unpack ────────────────
+    // Excl and SnoopMe share flit bit 108 (IHI0050E Table 13-1).
+    // Verify unpack_req sets BOTH fields from that single bit.
+    printf("\n[2] unpack_req: Excl=1 round-trips through flit pack/unpack\n");
+    {
+        using namespace chi_flit;
+        sc_dt::sc_bv<CHI_REQ_FLIT_W> f = 0;
+        bf_set(f, req_f::OPCODE_LO, req_f::OPCODE_W, 0x01); // ReadShared
+        bf_setb(f, req_f::EXCL_LO, true);   // Excl=1 (== SnoopMe_LO)
+
+        tlm::tlm_generic_payload gp;
+        chi::chi_ctrl_extension ext;
+        unpack_req(f, gp, ext);
+
+        CHECK(ext.req.is_excl(),     "unpack_req: Excl=1 sets is_excl()");
+        CHECK(ext.req.is_snoop_me(), "unpack_req: Excl=1 also sets is_snoop_me() (same bit)");
+
+        // Round-trip: clear and repack (use pack_rsp path for symmetric check;
+        // REQ pack isn't in chi_flit_pack.hh since REQs only travel inbound)
+        sc_dt::sc_bv<CHI_REQ_FLIT_W> f2 = 0;
+        bf_setb(f2, req_f::EXCL_LO, false);
+        chi::chi_ctrl_extension ext2;
+        unpack_req(f2, gp, ext2);
+        CHECK(!ext2.req.is_excl(),     "unpack_req: Excl=0 → is_excl() false");
+        CHECK(!ext2.req.is_snoop_me(), "unpack_req: Excl=0 → is_snoop_me() false");
+    }
+
+    // ── 3. unpack_req: WriteUniqueFull ────────────────────────────────────────
+    printf("\n[3] unpack_req: WriteUniqueFull (VIP controller path)\n");
     {
         inj.send_req(0xC0FFEE00, chi::req_optype_e::WriteUniqueFull, 99, 3);
         const CHIRequestMsg* m = peek_buf<CHIRequestMsg>(ctrl.getReqOut());
@@ -265,7 +293,7 @@ int sc_main(int, char**) {
     }
 
     // ── 3. unpack_dat: CopyBackWrData + data bytes ────────────────────────────
-    printf("\n[3] unpack_dat: CopyBackWrData\n");
+    printf("\n[4] unpack_dat: CopyBackWrData\n");
     {
         uint8_t payload[64];
         for (int i = 0; i < 64; i++) payload[i] = (uint8_t)(i * 2 + 1);
@@ -283,7 +311,7 @@ int sc_main(int, char**) {
     }
 
     // ── 4. unpack_dat: NonCopyBackWrData ──────────────────────────────────────
-    printf("\n[4] unpack_dat: NonCopyBackWrData\n");
+    printf("\n[5] unpack_dat: NonCopyBackWrData\n");
     {
         inj.send_dat(chi::dat_optype_e::NonCopyBackWrData, 55, nullptr, 0);
         const CHIDataMsg* m = peek_buf<CHIDataMsg>(ctrl.getDatOut());
@@ -296,7 +324,7 @@ int sc_main(int, char**) {
     }
 
     // ── 5. unpack_rsp: CompAck ────────────────────────────────────────────────
-    printf("\n[5] unpack_rsp: CompAck (RN-F → HN-F)\n");
+    printf("\n[6] unpack_rsp: CompAck (RN-F → HN-F)\n");
     {
         inj.send_rsp(chi::rsp_optype_e::CompAck, 11);
         const CHIResponseMsg* m = peek_buf<CHIResponseMsg>(ctrl.getRspOut());
@@ -309,7 +337,7 @@ int sc_main(int, char**) {
     }
 
     // ── 6. unpack_rsp: SnpResp ────────────────────────────────────────────────
-    printf("\n[6] unpack_rsp: SnpResp (RN-F → HN-F)\n");
+    printf("\n[7] unpack_rsp: SnpResp (RN-F → HN-F)\n");
     {
         inj.send_rsp(chi::rsp_optype_e::SnpResp, 22);
         const CHIResponseMsg* m = peek_buf<CHIResponseMsg>(ctrl.getRspOut());
@@ -328,7 +356,7 @@ int sc_main(int, char**) {
     // ═════════════════════════════════════════════════════════════════════════
 
     // ── 7. pack_rsp: Comp_UC from HN-F → txrsp_socket ────────────────────────
-    printf("\n[7] pack_rsp: Comp_UC outbound\n");
+    printf("\n[8] pack_rsp: Comp_UC outbound\n");
     {
         catch_rsp.reset();
         inject_rsp_into_rspIn(ctrl, CHIResponseType_Comp_UC, 88, 0, rs);
@@ -345,7 +373,7 @@ int sc_main(int, char**) {
     }
 
     // ── 8. pack_rsp: DBIDResp from HN-F → txrsp_socket ───────────────────────
-    printf("\n[8] pack_rsp: DBIDResp outbound\n");
+    printf("\n[9] pack_rsp: DBIDResp outbound\n");
     {
         catch_rsp.reset();
         inject_rsp_into_rspIn(ctrl, CHIResponseType_DBIDResp, 33, 5, rs);
@@ -360,7 +388,7 @@ int sc_main(int, char**) {
     }
 
     // ── 9. pack_dat: CompData_SC from HN-F → txdat_socket ────────────────────
-    printf("\n[9] pack_dat: CompData_SC outbound\n");
+    printf("\n[10] pack_dat: CompData_SC outbound\n");
     {
         catch_dat.reset();
         uint8_t bytes[64];
@@ -382,7 +410,7 @@ int sc_main(int, char**) {
     }
 
     // ── 10. pack_snp: SnpUnique from HN-F → txsnp_socket ─────────────────────
-    printf("\n[10] pack_snp: SnpUnique outbound\n");
+    printf("\n[11] pack_snp: SnpUnique outbound\n");
     {
         catch_snp.reset();
         inject_snp_into_snpIn(ctrl, CHIRequestType_SnpUnique, 13, true, rs);
@@ -398,7 +426,7 @@ int sc_main(int, char**) {
     }
 
     // ── 11. No extension → TLM_GENERIC_ERROR_RESPONSE ────────────────────────
-    printf("\n[11] inbound without CHI extension → error response\n");
+    printf("\n[12] inbound without CHI extension → error response\n");
     {
         tlm::tlm_generic_payload gp;
         gp.set_address(0);
@@ -421,7 +449,7 @@ int sc_main(int, char**) {
     }
 
     // ── 12. Three REQs queue in FIFO order ────────────────────────────────────
-    printf("\n[12] multiple REQs queue in FIFO order (reqOut)\n");
+    printf("\n[13] multiple REQs queue in FIFO order (reqOut)\n");
     {
         inj.send_req(0x1000, chi::req_optype_e::ReadShared,    1, 1);
         inj.send_req(0x2000, chi::req_optype_e::ReadUnique,    2, 2);
@@ -445,7 +473,7 @@ int sc_main(int, char**) {
     }
 
     // ── 13. Comp_I and RetryAck outbound ─────────────────────────────────────
-    printf("\n[13] pack_rsp: Comp_I and RetryAck outbound\n");
+    printf("\n[14] pack_rsp: Comp_I and RetryAck outbound\n");
     {
         for (auto [rtype, exp_op] : std::initializer_list<
                 std::pair<CHIResponseType, chi::rsp_optype_e>>{
