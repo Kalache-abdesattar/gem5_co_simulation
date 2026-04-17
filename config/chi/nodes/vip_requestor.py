@@ -30,79 +30,49 @@
 from m5.objects import (
     NULL,
     ClockDomain,
+    MessageBuffer,
     RubyCache,
+    RubyNetwork,
 )
 
 from gem5.components.cachehierarchies.chi.nodes.abstract_node import AbstractNode
 
+# Try to import the real co-simulation controller (only present when gem5 was
+# built with BUILD_VIP=1 / CHI_VIP_IPC_PATH set).
+try:
+    from m5.objects.VIPController import VIPController as _VIPController
+    _HAS_VIP_CONTROLLER = True
+except ImportError:
+    _HAS_VIP_CONTROLLER = False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Standalone mode (no gem5 build dependency)
+# ─────────────────────────────────────────────────────────────────────────────
 
 class VIPRequestor(AbstractNode):
-    """CHI RN-F proxy node for Questa co-simulation.
+    """CHI RN-F proxy node for the chi_vip standalone bridge.
 
-    This node participates in gem5's Ruby CHI network as an RN-F requestor
-    whose transactions originate from an RTL DUT running in Questa vsim.
-    The actual request injection is performed by questa_top (a SystemC module)
-    via TLM2 b_transport calls into the CHI_VIP_Controller, which in turn
-    reads/writes the Ruby message buffers that this node owns.
+    Registers in the Ruby CHI network so MachineID version numbers are
+    consistent.  The actual CHI_VIP_Controller runs inside questa_cosim_top.cc
+    and reads/writes the Ruby MessageBuffers through the shared shim headers.
 
-    Connectivity:
-        gem5 Ruby network  <-- MessageBuffers  --> CHI_VIP_Controller (SC)
-                                                         <-- TLM2 -->
-                                                   questa_top (SC pin bridge)
-                                                         <-- CHI wires -->
-                                                      Questa RTL DUT (RN-F)
-
-    Node ID:
-        The version number assigned by AbstractNode.versionCount() is used as
-        the MachineID.num when constructing questa_top in C++:
-
-            MachineID vip_id  {MachineType_Cache, vip_node.version}
-            MachineID hnf_id  = ... (from your downstream controller)
-
-        Print self.version after construction to confirm the assignment.
-
-    TBE sizing:
-        number_of_TBEs and number_of_snoop_TBEs should be set to at least the
-        maximum number of outstanding transactions and snoops your RTL DUT can
-        have in flight simultaneously.  The defaults below are conservative;
-        increase them for high-performance DUTs.
-
-    Note on DMT/DCT:
-        enable_DMT and enable_DCT are left False.  If your DUT supports Direct
-        Memory Transfer or Direct Cache Transfer, set them to True here and
-        ensure questa_top routes the corresponding TLM2 transactions correctly.
+    Use VIPRequestorCoSim for the full gem5 ↔ Questa IPC co-simulation.
     """
 
     def __init__(self, network, cache_line_size, clk_domain: ClockDomain,
                  num_tbes: int = 256, num_snoop_tbes: int = 64):
-        """
-        Args:
-            network:          Ruby network object (passed to AbstractNode).
-            cache_line_size:  System cache-line size in bytes.
-            clk_domain:       Clock domain for this controller.
-            num_tbes:         Maximum outstanding request TBEs (default 256).
-            num_snoop_tbes:   Maximum outstanding snoop TBEs (default 64).
-        """
         super().__init__(network, cache_line_size)
 
-        # A minimal dummy RubyCache is required by CHI_Cache_Controller even
-        # for nodes with no actual cache.  size="128" is the smallest legal value.
         self.cache = RubyCache(
             dataAccessLatency=0, tagAccessLatency=1, size="128", assoc=1
         )
-
         self.clk_domain = clk_domain
 
-        # ── CHI node type ─────────────────────────────────────────────────────
-        # VIPRequestor acts as an RN-F: it is not a home node and does not
-        # participate in direct memory or cache-to-cache transfers.
         self.is_HN        = False
         self.enable_DMT   = False
         self.enable_DCT   = False
 
-        # ── Cache allocation policy: none ─────────────────────────────────────
-        # All data passes through to the downstream HN-F / L3.  The RTL DUT
-        # manages its own internal cache; gem5 only sees the CHI messages.
         self.allow_SD                  = False
         self.alloc_on_seq_acc          = False
         self.alloc_on_seq_line_write   = False
@@ -120,13 +90,83 @@ class VIPRequestor(AbstractNode):
         self.use_prefetcher = False
         self.prefetcher     = NULL
 
-        # ── TBE counts ────────────────────────────────────────────────────────
-        # An RTL DUT may have many simultaneous in-flight transactions.
-        # Tune num_tbes to match your DUT's maximum outstanding request count.
-        # num_snoop_tbes should be >= the DUT's snoop buffer depth.
         self.number_of_TBEs            = num_tbes
-        self.number_of_repl_TBEs       = 1     # no eviction engine
+        self.number_of_repl_TBEs       = 1
         self.number_of_snoop_TBEs      = num_snoop_tbes
-        self.number_of_DVM_TBEs        = 1     # DVM not expected from RTL DUT
+        self.number_of_DVM_TBEs        = 1
         self.number_of_DVM_snoop_TBEs  = 1
         self.unify_repl_TBEs           = False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Full co-simulation mode (requires BUILD_VIP=1 gem5 build)
+# ─────────────────────────────────────────────────────────────────────────────
+
+if _HAS_VIP_CONTROLLER:
+
+    class VIPRequestorCoSim(_VIPController):
+        """CHI RN-F proxy node for the full gem5 ↔ Questa IPC co-simulation.
+
+        Inherits VIPController (CHIGenericController subclass) and sets up
+        the 8 CHIGenericController MessageBuffers connected to the Ruby network.
+        Also assigns a unique version number from the AbstractNode version counter.
+
+        Usage:
+            node = VIPRequestorCoSim(
+                network        = ruby_system.network,
+                cache_line_size = board.get_cache_line_size(),
+                ruby_system    = ruby_system,
+                shm_name       = "/chi_vip_0",
+            )
+        """
+
+        _version = 0
+
+        @classmethod
+        def versionCount(cls):
+            cls._version += 1
+            return cls._version - 1
+
+        def __init__(self, network: RubyNetwork, cache_line_size: int,
+                     ruby_system, shm_name: str = "/chi_vip_0",
+                     num_tbes: int = 256, num_snoop_tbes: int = 64):
+            super().__init__()
+
+            self.version    = VIPRequestorCoSim.versionCount()
+            self.shm_name   = shm_name
+            self.ruby_system = ruby_system
+
+            # CHIGenericController needs data_channel_size.
+            self.data_channel_size = cache_line_size
+
+            # ── MessageBuffers ─────────────────────────────────────────────────
+            self.reqOut = MessageBuffer()
+            self.rspOut = MessageBuffer()
+            self.snpOut = MessageBuffer()
+            self.datOut = MessageBuffer()
+            self.reqIn  = MessageBuffer()
+            self.rspIn  = MessageBuffer()
+            self.snpIn  = MessageBuffer()
+            self.datIn  = MessageBuffer()
+            self.reqOut.out_port = network.in_port
+            self.rspOut.out_port = network.in_port
+            self.snpOut.out_port = network.in_port
+            self.datOut.out_port = network.in_port
+            self.reqIn.in_port   = network.out_port
+            self.rspIn.in_port   = network.out_port
+            self.snpIn.in_port   = network.out_port
+            self.datIn.in_port   = network.out_port
+
+            # Generous TBE counts for a high-performance RTL DUT.
+            self.transitions_per_cycle = 1024
+
+            print(f"[VIPRequestorCoSim] version={self.version} shm='{shm_name}'")
+
+else:
+    # Provide a stub so imports always succeed; raise at instantiation time.
+    class VIPRequestorCoSim:  # type: ignore[no-redef]
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError(
+                "VIPRequestorCoSim requires gem5 built with BUILD_VIP=1. "
+                "Set CHI_VIP_IPC_PATH=/path/to/chi_vip/ipc when running scons."
+            )
