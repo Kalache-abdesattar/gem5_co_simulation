@@ -80,7 +80,11 @@ struct req_f {
     static constexpr int MEMATTR_W     = 4;
     static constexpr int SNPATTR_LO    = MEMATTR_LO    + MEMATTR_W;     // 106
     static constexpr int DWT_LO        = SNPATTR_LO    + 1;              // 107
-    static constexpr int SNOOPME_LO    = DWT_LO        + 1;              // 108
+    // Excl and SnoopMe are alternative names for the same flit bit (IHI0050E
+    // Table 13-1): Excl applies to ReadClean/ReadUnique/CleanUnique/MakeUnique
+    // etc.; SnoopMe applies to WriteUnique*.  Both must be set on unpack.
+    static constexpr int EXCL_LO       = DWT_LO        + 1;              // 108
+    static constexpr int SNOOPME_LO    = EXCL_LO;                        // 108 (alias)
     static constexpr int EXPCOMPACK_LO = SNOOPME_LO    + 1;              // 109
     static constexpr int TAGOP_LO      = EXPCOMPACK_LO + 1;              // 110
     static constexpr int TAGOP_W       = 2;
@@ -218,6 +222,9 @@ inline void unpack_req(const sc_dt::sc_bv<CHI_REQ_FLIT_W>& f,
     e.req.set_mem_attr(static_cast<uint8_t>(bf_get(f, F::MEMATTR_LO,   F::MEMATTR_W)));
     e.req.set_snp_attr(static_cast<bool>(   bf_get(f, F::SNPATTR_LO,   1)));
     e.req.set_exp_comp_ack( bf_getb(f, F::EXPCOMPACK_LO));
+    // Excl and SnoopMe share the same flit bit; set both so gem5 sees the
+    // correct value regardless of which field it queries for the given opcode.
+    e.req.set_excl(         bf_getb(f, F::EXCL_LO));
     e.req.set_snoop_me(     bf_getb(f, F::SNOOPME_LO));
     e.req.set_trace_tag(    bf_getb(f, F::TRACETAG_LO));
     e.req.set_return_n_id(static_cast<uint16_t>(bf_get(f, F::RTNID_LO,    F::RTNID_W)));
@@ -304,6 +311,7 @@ inline void pack_rsp(const chi::chi_ctrl_extension& e,
     bf_set(f, F::TXNID_LO,   F::TXNID_W,   e.cmn.get_txn_id());
     bf_set(f, F::TGTID_LO,   F::TGTID_W,   e.resp.get_tgt_id());
     bf_set(f, F::OPCODE_LO,  F::OPCODE_W,  static_cast<uint64_t>(e.resp.get_opcode()));
+    bf_set(f, F::RESPERR_LO, F::RESPERR_W, static_cast<uint64_t>(e.resp.get_resp_err()));
     bf_set(f, F::RESP_LO,    F::RESP_W,    static_cast<uint64_t>(e.resp.get_resp()));
     bf_set(f, F::FWDSTATE_LO,F::FWDSTATE_W,e.resp.get_fwd_state());
     bf_setb(f, F::DATAPULL_LO,             e.resp.get_data_pull());
@@ -328,6 +336,7 @@ inline void pack_dat(const chi::chi_data_extension& e,
     bf_set(f, F::TGTID_LO,    F::TGTID_W,  e.dat.get_tgt_id());
     bf_set(f, F::HOMEID_LO,   F::HOMEID_W, e.dat.get_home_n_id());
     bf_set(f, F::OPCODE_LO,   F::OPCODE_W, static_cast<uint64_t>(e.dat.get_opcode()));
+    bf_set(f, F::RESPERR_LO,  F::RESPERR_W,static_cast<uint64_t>(e.dat.get_resp_err()));
     bf_set(f, F::RESP_LO,     F::RESP_W,   static_cast<uint64_t>(e.dat.get_resp()));
     bf_set(f, F::FWDSTATE_LO, F::FWDSTATE_W, e.dat.get_fwd_state());
     bf_setb(f, F::DATAPULL_LO,              e.dat.get_data_pull() != 0);
@@ -360,7 +369,7 @@ inline void pack_snp(const chi::chi_snp_extension& e,
     bf_set(f, F::FWDNID_LO,       F::FWDNID_W,  e.req.get_fwd_n_id());
     bf_set(f, F::FWDTXNID_LO,     F::FWDTXNID_W,e.req.get_fwd_txn_id());
     bf_set(f, F::OPCODE_LO,       F::OPCODE_W,   static_cast<uint64_t>(e.req.get_opcode()));
-    bf_setb(f, F::NS_LO,          false);  // NS not modelled in gem5 SNP
+    bf_setb(f, F::NS_LO,          e.req.is_non_secure());
     bf_setb(f, F::DONOTGOTOSD_LO, e.req.is_do_not_goto_sd());
     bf_setb(f, F::RETTOSRC_LO,    e.req.is_ret_to_src());
     bf_setb(f, F::DONOTDATAPULL_LO, e.req.is_do_not_data_pull());
