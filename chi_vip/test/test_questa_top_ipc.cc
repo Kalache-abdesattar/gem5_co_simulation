@@ -659,6 +659,349 @@ static void test_b10_reset(sc_clock& clk, ChiShmHandle& shm, TopPorts& p)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// B.11 — REQ TX flit: exp_comp_ack bit extracted into q2g_req.exp_comp_ack
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_b11_req_exp_comp_ack(sc_clock& clk, ChiShmHandle& shm, TopPorts& p)
+{
+    printf("\n── B.11 req_exp_comp_ack ──────────────────────────────────────\n");
+
+    { chi_ipc::ChiIpcReq tmp; while (shm.layout()->q2g_req.pop(tmp)) {} }
+
+    ReqFlit f1 = 0;
+    bf_set(f1, req_f::OPCODE_LO,      req_f::OPCODE_W, 0x01);
+    bf_set(f1, req_f::TXNID_LO,       req_f::TXNID_W,  0xD0);
+    bf_set(f1, req_f::SRCID_LO,       req_f::SRCID_W,  4);
+    bf_set(f1, req_f::SIZE_LO,        req_f::SIZE_W,   6);
+    bf_setb(f1, req_f::EXPCOMPACK_LO, true);
+    p.txreq_flit.write(f1); p.txreq_flitv.write(true);
+    tick(1); p.txreq_flitv.write(false); tick(1);
+    chi_ipc::ChiIpcReq out1{};
+    shm.layout()->q2g_req.pop(out1);
+    CHECK(out1.exp_comp_ack == 1,    "B.11: ExpCompAck=1 extracted into q2g_req");
+    CHECK(out1.txn_id       == 0xD0, "B.11: txn_id not clobbered by ExpCompAck");
+
+    ReqFlit f0 = 0;
+    bf_set(f0, req_f::OPCODE_LO,      req_f::OPCODE_W, 0x30);
+    bf_set(f0, req_f::TXNID_LO,       req_f::TXNID_W,  0xD1);
+    bf_set(f0, req_f::SRCID_LO,       req_f::SRCID_W,  4);
+    bf_set(f0, req_f::SIZE_LO,        req_f::SIZE_W,   6);
+    bf_setb(f0, req_f::EXPCOMPACK_LO, false);
+    p.txreq_flit.write(f0); p.txreq_flitv.write(true);
+    tick(1); p.txreq_flitv.write(false); tick(1);
+    chi_ipc::ChiIpcReq out0{};
+    shm.layout()->q2g_req.pop(out0);
+    CHECK(out0.exp_comp_ack == 0, "B.11: ExpCompAck=0 extracted correctly");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B.12 — RSP TX flit: fwd_state and data_pull extracted into q2g_rsp
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_b12_rsp_fwd_state_q2g(sc_clock& clk, ChiShmHandle& shm, TopPorts& p)
+{
+    printf("\n── B.12 rsp_fwd_state_q2g ─────────────────────────────────────\n");
+
+    { chi_ipc::ChiIpcRsp tmp; while (shm.layout()->q2g_rsp.pop(tmp)) {} }
+
+    RspFlit f = 0;
+    bf_set(f, rsp_f::OPCODE_LO,   rsp_f::OPCODE_W,   0x09);
+    bf_set(f, rsp_f::TXNID_LO,    rsp_f::TXNID_W,    0xE0);
+    bf_set(f, rsp_f::SRCID_LO,    rsp_f::SRCID_W,    4);
+    bf_set(f, rsp_f::TGTID_LO,    rsp_f::TGTID_W,    2);
+    bf_set(f, rsp_f::RESP_LO,     rsp_f::RESP_W,     0x01);
+    bf_set(f, rsp_f::FWDSTATE_LO, rsp_f::FWDSTATE_W, 5);
+    bf_setb(f, rsp_f::DATAPULL_LO, true);
+    p.txrsp_flit.write(f); p.txrsp_flitv.write(true);
+    tick(1); p.txrsp_flitv.write(false); tick(1);
+    chi_ipc::ChiIpcRsp out{};
+    shm.layout()->q2g_rsp.pop(out);
+    CHECK(out.fwd_state == 5,    "B.12: fwd_state=5 extracted from RSP TX flit");
+    CHECK(out.data_pull == 1,    "B.12: data_pull=1 extracted from RSP TX flit");
+    CHECK(out.txn_id    == 0xE0, "B.12: txn_id not clobbered by new fields");
+    CHECK(out.resp      == 0x01, "B.12: resp not clobbered");
+
+    RspFlit f0 = 0;
+    bf_set(f0, rsp_f::OPCODE_LO, rsp_f::OPCODE_W, 0x04);
+    bf_set(f0, rsp_f::TXNID_LO,  rsp_f::TXNID_W,  0xE1);
+    bf_set(f0, rsp_f::SRCID_LO,  rsp_f::SRCID_W,  4);
+    p.txrsp_flit.write(f0); p.txrsp_flitv.write(true);
+    tick(1); p.txrsp_flitv.write(false); tick(1);
+    chi_ipc::ChiIpcRsp out0{};
+    shm.layout()->q2g_rsp.pop(out0);
+    CHECK(out0.fwd_state == 0, "B.12: fwd_state=0 (default) correct");
+    CHECK(out0.data_pull == 0, "B.12: data_pull=0 (default) correct");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B.13 — DAT TX flit: cc_id extracted into q2g_dat (all 4 values)
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_b13_dat_cc_id_q2g(sc_clock& clk, ChiShmHandle& shm, TopPorts& p)
+{
+    printf("\n── B.13 dat_cc_id_q2g ─────────────────────────────────────────\n");
+
+    { chi_ipc::ChiIpcDat tmp; while (shm.layout()->q2g_dat.pop(tmp)) {} }
+
+    for (int cc = 0; cc < 4; cc++) {
+        DatFlit f = 0;
+        bf_set(f, dat_f::OPCODE_LO, dat_f::OPCODE_W, 0x02);
+        bf_set(f, dat_f::TXNID_LO,  dat_f::TXNID_W,  static_cast<uint64_t>(0xF0 + cc));
+        bf_set(f, dat_f::SRCID_LO,  dat_f::SRCID_W,  4);
+        bf_set(f, dat_f::CCID_LO,   dat_f::CCID_W,   static_cast<uint64_t>(cc));
+        p.txdat_flit.write(f); p.txdat_flitv.write(true);
+        tick(1); p.txdat_flitv.write(false); tick(1);
+        chi_ipc::ChiIpcDat out{};
+        shm.layout()->q2g_dat.pop(out);
+        CHECK(out.cc_id  == static_cast<uint8_t>(cc),
+              ("B.13: cc_id=" + std::to_string(cc) + " extracted from DAT TX flit").c_str());
+        CHECK(out.txn_id == static_cast<uint8_t>(0xF0 + cc),
+              "B.13: txn_id not clobbered by cc_id extraction");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B.14 — g2q_rsp → rxrsp_flit: fwd_state and data_pull packed into flit
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_b14_rsp_fwd_state_g2q(sc_clock& clk, ChiShmHandle& shm, TopPorts& p)
+{
+    printf("\n── B.14 rsp_fwd_state_g2q ─────────────────────────────────────\n");
+
+    p.rxrsp_lcrdv.write(true); tick(1); p.rxrsp_lcrdv.write(false);
+
+    chi_ipc::ChiIpcRsp r{};
+    r.opcode    = 0x09;
+    r.txn_id    = 0xA5;
+    r.src_id    = 3;
+    r.tgt_id    = 7;
+    r.fwd_state = 6;
+    r.data_pull = 1;
+    shm.layout()->g2q_rsp.push(r);
+    tick(1);
+
+    CHECK(p.rxrsp_flitv.read(), "B.14: rxrsp_flitv high");
+    if (p.rxrsp_flitv.read()) {
+        RspFlit f = p.rxrsp_flit.read();
+        uint64_t fs  = bf_get(f, rsp_f::FWDSTATE_LO, rsp_f::FWDSTATE_W);
+        bool     dp  = bf_getb(f, rsp_f::DATAPULL_LO);
+        uint64_t tid = bf_get(f, rsp_f::TXNID_LO, rsp_f::TXNID_W);
+        CHECK(fs  == 6,    "B.14: fwd_state=6 packed into rxrsp_flit");
+        CHECK(dp  == true, "B.14: data_pull=1 packed into rxrsp_flit");
+        CHECK(tid == 0xA5, "B.14: txn_id not clobbered");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B.15 — g2q_dat → rxdat_flit: cc_id packed into flit (all 4 values)
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_b15_dat_cc_id_g2q(sc_clock& clk, ChiShmHandle& shm, TopPorts& p)
+{
+    printf("\n── B.15 dat_cc_id_g2q ─────────────────────────────────────────\n");
+
+    for (int cc = 0; cc < 4; cc++) {
+        p.rxdat_lcrdv.write(true); tick(1); p.rxdat_lcrdv.write(false);
+
+        chi_ipc::ChiIpcDat d{};
+        d.opcode   = 0x04;
+        d.txn_id   = static_cast<uint8_t>(0xB0 + cc);
+        d.src_id   = 5; d.tgt_id = 3;
+        d.resp     = 0x02;
+        d.data_len = 64;
+        d.cc_id    = static_cast<uint8_t>(cc);
+        for (int i = 0; i < 64; i++) { d.data[i] = 0x55; d.be[i] = 0xFF; }
+        shm.layout()->g2q_dat.push(d);
+        tick(1);
+
+        CHECK(p.rxdat_flitv.read(), "B.15: rxdat_flitv high");
+        if (p.rxdat_flitv.read()) {
+            DatFlit f    = p.rxdat_flit.read();
+            uint64_t got_cc  = bf_get(f, dat_f::CCID_LO,  dat_f::CCID_W);
+            uint64_t got_tid = bf_get(f, dat_f::TXNID_LO, dat_f::TXNID_W);
+            CHECK(got_cc  == static_cast<uint64_t>(cc),
+                  ("B.15: cc_id=" + std::to_string(cc) + " in rxdat_flit").c_str());
+            CHECK(got_tid == static_cast<uint64_t>(0xB0 + cc),
+                  "B.15: txn_id not clobbered");
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B.16 — Four consecutive RSPs through g2q_rsp: order and txn_ids preserved
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_b11_multi_rsp(sc_clock& clk, ChiShmHandle& shm, TopPorts& p)
+{
+    printf("\n── B.11 multi_rsp ─────────────────────────────────────────────\n");
+
+    // Grant 4 rxrsp credits up front
+    for (int i = 0; i < 4; i++) {
+        p.rxrsp_lcrdv.write(true);
+        tick(1);
+    }
+    p.rxrsp_lcrdv.write(false);
+
+    // Push 4 RSPs with sequential txn_ids
+    for (int i = 0; i < 4; i++) {
+        ChiIpcRsp r{};
+        r.opcode  = 0x04;           // Comp
+        r.txn_id  = static_cast<uint8_t>(0x40 + i);
+        r.src_id  = 5;
+        r.tgt_id  = 10;
+        r.resp    = 0x01;           // UC
+        shm.layout()->g2q_rsp.push(r);
+    }
+
+    // 4 clock ticks: each cycle drains one RSP from g2q and drives one flit
+    for (int i = 0; i < 4; i++) {
+        tick(1);
+        CHECK(p.rxrsp_flitv.read(),
+              ("B.11: rxrsp_flitv high on flit " + std::to_string(i)).c_str());
+        uint64_t tid = bf_get(p.rxrsp_flit.read(),
+                              rsp_f::TXNID_LO, rsp_f::TXNID_W);
+        CHECK(tid == static_cast<uint64_t>(0x40 + i),
+              ("B.11: txn_id=" + std::to_string(0x40 + i) + " in order").c_str());
+    }
+
+    // After 4 flits the RSP queue should be empty → no more flits
+    tick(1);
+    CHECK(!p.rxrsp_flitv.read(),
+          "B.11: rxrsp_flitv low after all 4 RSPs consumed");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B.12 — REQ opcode diversity: ReadShared / ReadNoSnp / WriteNoSnpFull all
+//         appear in q2g_req with correct opcodes after being driven on TX
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_b12_req_opcodes(sc_clock& clk, ChiShmHandle& shm, TopPorts& p)
+{
+    printf("\n── B.12 req_opcodes ───────────────────────────────────────────\n");
+
+    // Drain any stale entries from q2g_req first
+    { chi_ipc::ChiIpcReq tmp; while (shm.layout()->q2g_req.pop(tmp)) {} }
+
+    // Three opcodes: ReadShared=0x01, ReadNoSnp=0x30, WriteNoSnpFull=0x17
+    const struct { uint8_t op; const char* name; } cases[] = {
+        {0x01, "ReadShared"},
+        {0x30, "ReadNoSnp"},
+        {0x17, "WriteNoSnpFull"},
+    };
+
+    for (auto& c : cases) {
+        ReqFlit flit{};
+        bf_set(flit, req_f::OPCODE_LO, req_f::OPCODE_W, c.op);
+        bf_set(flit, req_f::TXNID_LO,  req_f::TXNID_W,  0x55);
+        bf_set(flit, req_f::SRCID_LO,  req_f::SRCID_W,  4);
+        bf_set(flit, req_f::SIZE_LO,   req_f::SIZE_W,   6);  // 64 bytes
+        bf_set(flit, req_f::ADDR_LO,   req_f::ADDR_W,   0x1000 >> 0);
+
+        p.txreq_flit.write(flit);
+        p.txreq_flitv.write(true);
+        tick(1);
+        p.txreq_flitv.write(false);
+        tick(1);
+
+        chi_ipc::ChiIpcReq got{};
+        bool ok = shm.layout()->q2g_req.pop(got);
+        CHECK(ok,            (std::string("B.12: ") + c.name + " pushed to q2g_req").c_str());
+        CHECK(got.opcode == c.op,
+              (std::string("B.12: ") + c.name + " opcode preserved in q2g_req").c_str());
+        CHECK(got.txn_id == 0x55,
+              (std::string("B.12: ") + c.name + " txn_id=0x55 preserved").c_str());
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B.13 — SNP ret_to_src and do_not_goto_sd propagate from g2q_snp → rxsnp_flit
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_b13_snp_flags(sc_clock& clk, ChiShmHandle& shm, TopPorts& p)
+{
+    printf("\n── B.13 snp_flags ─────────────────────────────────────────────\n");
+
+    // Test all 4 combinations of {ret_to_src, do_not_goto_sd}
+    const struct { uint8_t rts; uint8_t dngs; } combos[] = {
+        {0, 0},
+        {1, 0},
+        {0, 1},
+        {1, 1},
+    };
+
+    // Grant 4 rxsnp credits
+    for (int i = 0; i < 4; i++) {
+        p.rxsnp_lcrdv.write(true);
+        tick(1);
+    }
+    p.rxsnp_lcrdv.write(false);
+
+    for (auto& c : combos) {
+        chi_ipc::ChiIpcSnp snp{};
+        snp.opcode      = 0x01;  // SnpShared
+        snp.txn_id      = 0xC0;
+        snp.src_id      = 3;
+        snp.addr        = 0x9000;
+        snp.ret_to_src  = c.rts;
+        snp.do_not_goto_sd = c.dngs;
+        shm.layout()->g2q_snp.push(snp);
+    }
+
+    for (auto& c : combos) {
+        tick(1);
+        CHECK(p.rxsnp_flitv.read(), "B.13: rxsnp_flitv high");
+        if (p.rxsnp_flitv.read()) {
+            SnpFlit f = p.rxsnp_flit.read();
+            bool rts  = bf_getb(f, snp_f::RETTOSRC_LO);
+            bool dngs = bf_getb(f, snp_f::DONOTGOTOSD_LO);
+            CHECK(static_cast<int>(rts)  == c.rts,
+                  ("B.13: ret_to_src=" + std::to_string(c.rts) + " in flit").c_str());
+            CHECK(static_cast<int>(dngs) == c.dngs,
+                  ("B.13: do_not_goto_sd=" + std::to_string(c.dngs) + " in flit").c_str());
+        }
+    }
+
+    tick(1);
+    CHECK(!p.rxsnp_flitv.read(), "B.13: rxsnp_flitv low after all 4 SNPs");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B.14 — DAT txn_id=0xFF boundary (max TXNID_W=8 value) in rxdat_flit
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_b14_dat_txnid_max(sc_clock& clk, ChiShmHandle& shm, TopPorts& p)
+{
+    printf("\n── B.14 dat_txnid_max ─────────────────────────────────────────\n");
+
+    p.rxdat_lcrdv.write(true);
+    tick(1);
+    p.rxdat_lcrdv.write(false);
+
+    chi_ipc::ChiIpcDat dat{};
+    dat.opcode   = 0x04;   // CompData
+    dat.txn_id   = 0xFF;   // max 8-bit TXNID
+    dat.src_id   = 7;
+    dat.tgt_id   = 4;
+    dat.resp     = 0x02;   // UC
+    dat.data_len = 64;
+    for (int i = 0; i < 64; i++) { dat.data[i] = 0xAB; dat.be[i] = 0xFF; }
+    shm.layout()->g2q_dat.push(dat);
+
+    tick(1);
+
+    CHECK(p.rxdat_flitv.read(), "B.14: rxdat_flitv high for txn_id=0xFF");
+    if (p.rxdat_flitv.read()) {
+        DatFlit f = p.rxdat_flit.read();
+        uint64_t tid  = bf_get(f, dat_f::TXNID_LO,  dat_f::TXNID_W);
+        uint64_t resp = bf_get(f, dat_f::RESP_LO,    dat_f::RESP_W);
+        uint64_t op   = bf_get(f, dat_f::OPCODE_LO,  dat_f::OPCODE_W);
+        CHECK(tid  == 0xFF, "B.14: txn_id=0xFF (max) preserved in dat flit");
+        CHECK(resp == 0x02, "B.14: resp=UC preserved alongside txn_id=0xFF");
+        CHECK(op   == 0x04, "B.14: opcode=CompData preserved");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // sc_main
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -702,6 +1045,15 @@ int sc_main(int, char**)
     test_b8_dat_flit_to_ipc(clk, shm_b, ports_b);
     test_b9_questa_ps(clk, shm_b, ports_b);
     test_b10_reset(clk, shm_b, ports_b);
+    test_b11_req_exp_comp_ack(clk, shm_b, ports_b);
+    test_b12_rsp_fwd_state_q2g(clk, shm_b, ports_b);
+    test_b13_dat_cc_id_q2g(clk, shm_b, ports_b);
+    test_b14_rsp_fwd_state_g2q(clk, shm_b, ports_b);
+    test_b15_dat_cc_id_g2q(clk, shm_b, ports_b);
+    test_b11_multi_rsp(clk, shm_b, ports_b);
+    test_b12_req_opcodes(clk, shm_b, ports_b);
+    test_b13_snp_flags(clk, shm_b, ports_b);
+    test_b14_dat_txnid_max(clk, shm_b, ports_b);
 
     printf("\n=== RESULTS: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

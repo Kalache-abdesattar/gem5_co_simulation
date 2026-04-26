@@ -87,8 +87,9 @@ class AbstractNode(CHI_Cache_Controller):
         # timeouts on unique lines when a store conditional fails
         self.sc_lock_enabled = False
 
-        # Use 32-byte channels (two flits per message)
-        self.data_channel_size = 32
+        # Use 64-byte channels (one flit per cache line) to match the
+        # Questa CHI DUT's CHI_DATA_W_BYTES=64 interface width.
+        self.data_channel_size = 64
 
         # Use near atomics (see: https://github.com/gem5/gem5/issues/449)
         self.policy_type = 0

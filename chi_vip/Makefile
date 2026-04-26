@@ -296,20 +296,29 @@ $(QUESTA_BUILD)/work/systemc.so: \
 	    $(QUESTA)/linux_x86_64/libsystemc_cpp17.a -lrt
 
 # systemc_sv.so (SV-wrapper vsim, questa_top_ipc_wrap.sv as top):
-# uses a minimal sc_main (no static SC instances) because vsim creates the
-# SC instance automatically from the SV instantiation via SC_MODULE_EXPORT.
-# Also linked with QUESTA_CXX for the same GLIBCXX compatibility reason.
-# vsim loads the _sc/ variant of this file; copy it there after building:
-#   cp $(QUESTA_BUILD)/work/systemc_sv.so $(QUESTA_OBJDIR)/systemc.so
+# uses sccom -link (NOT a manual g++ -shared) so that vopt can verify the
+# SystemC version marker embedded by sccom.  Manual g++ -shared produces a
+# .so that fails vopt-10515 ("No 64-bit systemc.so found for SystemC version
+# 2.3.2 compiled with gcc-10.3.0").
+#
+# sccom -link links ALL .o files currently in the work library.  For the SV
+# variant we need only: chi_ipc + questa_top_ipc + questa_top_ipc_vsim +
+# questa_sc_main.  questa_cosim_top_ipc.o (standalone sc_main) conflicts, so
+# it is removed before linking and restored for the standalone systemc.so build.
 $(QUESTA_BUILD)/work/systemc_sv.so: \
         $(QUESTA_OBJDIR)/chi_ipc.o \
         $(QUESTA_OBJDIR)/questa_top_ipc.o \
         $(QUESTA_OBJDIR)/questa_top_ipc_vsim.o \
         $(QUESTA_OBJDIR)/questa_sc_main.o \
         | questa_ld_patch
-	$(QUESTA_CXX) -std=c++17 -shared -fPIC -o $@ $^ \
-	    $(QUESTA)/linux_x86_64/libsystemc_cpp17.a -lrt
-	cp $@ $(QUESTA_OBJDIR)/systemc.so
+	# Remove standalone sc_main .o so only questa_sc_main (minimal) is linked
+	rm -f $(QUESTA_OBJDIR)/questa_cosim_top_ipc.o
+	rm -f $(QUESTA_OBJDIR)/questa_cosim_top_ipc.dbs
+	cd $(QUESTA_BUILD) && PATH=$(QUESTA)/bin:$$PATH sccom -suppress sccom-94 -link
+	cp $(QUESTA_OBJDIR)/systemc.so $@
+	# Copy system libstdc++ alongside systemc.so so the dynamic linker finds
+	# it before Questa's bundled copy (which lacks GLIBCXX_3.4.29).
+	cp /usr/lib64/libstdc++.so.6 $(QUESTA_OBJDIR)/libstdc++.so.6
 
 $(QUESTA_BUILD)/work/questa_top_ipc_wrap: questa/questa_top_ipc_wrap.sv \
         | $(QUESTA_BUILD)/work/systemc.so
@@ -321,18 +330,41 @@ $(QUESTA_BUILD)/work/tb_ipc_vsim: questa/tb_ipc_vsim.sv \
 	$(VLOG) $(CURDIR)/questa/tb_ipc_vsim.sv
 	touch $@
 
-# Build the SV testbench variant (systemc_sv.so + SV files)
+$(QUESTA_BUILD)/work/tb_gem5_cosim: questa/tb_gem5_cosim.sv \
+        | $(QUESTA_BUILD)/work/questa_top_ipc_wrap
+	$(VLOG) $(CURDIR)/questa/tb_gem5_cosim.sv
+	touch $@
+
+# Build the SV testbench variant (systemc_sv.so + SV files, standalone with shm_create)
 questa_build_sv: $(QUESTA_BUILD)/work/systemc_sv.so $(QUESTA_BUILD)/work/tb_ipc_vsim
 	@echo ""
 	@echo "━━━ questa_build_sv complete ━━━"
 	@echo "  systemc_sv.so : $(QUESTA_BUILD)/work/systemc_sv.so"
-	@echo "  To run the SV testbench:"
+	@echo "  To run the SV testbench (standalone, no gem5):"
 	@echo "    questa_build/shm_create &"
 	@echo "    PATH=$(QUESTA)/bin:\$$PATH vsim -c \\"
 	@echo "        -lib questa_build/work questa_top_ipc_wrap tb_ipc_vsim \\"
 	@echo "        -do 'run -all; quit -f'"
 
-.PHONY: all run clean cosim-help questa_build questa_build_sv questa_ld_patch questa_build_restore_ld
+# Build the gem5 co-simulation testbench (requires gem5 --vip running in parallel)
+questa_build_cosim: $(QUESTA_BUILD)/work/systemc_sv.so $(QUESTA_BUILD)/work/tb_gem5_cosim
+	@echo ""
+	@echo "━━━ questa_build_cosim complete ━━━"
+	@echo "  To run: start gem5 first, then run questa:"
+	@echo ""
+	@echo "  Terminal 1 (gem5):"
+	@echo "    cd gem5/"
+	@echo "    build/X86_CHI/gem5.opt ../config/chi/chi_hnf_only.py --max-ticks 500000000000000"
+	@echo ""
+	@echo "  Terminal 2 (questa):"
+	@echo "    cd chi_vip/"
+	@echo "    LM_LICENSE_FILE=1718@localhost \\"
+	@echo "    LD_PRELOAD=/usr/lib64/libstdc++.so.6 \\"
+	@echo "    PATH=$(QUESTA)/bin:\$$PATH \\"
+	@echo "    vsim -c -lib questa_build/work questa_top_ipc_wrap tb_gem5_cosim \\"
+	@echo "        -do 'run -all; quit -f'"
+
+.PHONY: all run clean cosim-help questa_build questa_build_sv questa_build_cosim questa_ld_patch questa_build_restore_ld
 
 # ── Co-simulation build help ──────────────────────────────────────────────────
 cosim-help:

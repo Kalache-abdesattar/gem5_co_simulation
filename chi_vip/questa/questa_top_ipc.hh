@@ -42,7 +42,10 @@ namespace gem5 { namespace ruby {
 
 using ReqFlit = sc_dt::sc_bv<chi_flit::CHI_REQ_FLIT_W>;
 using RspFlit = sc_dt::sc_bv<chi_flit::CHI_RSP_FLIT_W>;
-using DatFlit = sc_dt::sc_bv<chi_flit::CHI_DAT_FLIT_W>;
+// sc_lv (4-state) is required for DatFlit: Questa's SC→SV bridge only
+// propagates all words of a wide port when the type is sc_lv; sc_bv only
+// propagates word 0 (bits 31:0), leaving DATA bits [636:125] as 'x' in SV.
+using DatFlit = sc_dt::sc_lv<chi_flit::CHI_DAT_FLIT_W>;
 using SnpFlit = sc_dt::sc_bv<chi_flit::CHI_SNP_FLIT_W>;
 
 SC_MODULE(questa_top_ipc)

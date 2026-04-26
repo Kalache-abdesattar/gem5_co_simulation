@@ -120,19 +120,17 @@ if _HAS_VIP_CONTROLLER:
             )
         """
 
-        _version = 0
-
-        @classmethod
-        def versionCount(cls):
-            cls._version += 1
-            return cls._version - 1
-
         def __init__(self, network: RubyNetwork, cache_line_size: int,
                      ruby_system, shm_name: str = "/chi_vip_0",
                      num_tbes: int = 256, num_snoop_tbes: int = 64):
             super().__init__()
 
-            self.version    = VIPRequestorCoSim.versionCount()
+            # VIPController uses MachineType_Cache — must share the version
+            # counter with all other CHI cache controllers (CHI_Cache_Controller)
+            # so node IDs don't clash.
+            from ruby.CHI_config import Versions
+            from m5.objects import CHI_Cache_Controller
+            self.version = Versions.getVersion(CHI_Cache_Controller)
             self.shm_name   = shm_name
             self.ruby_system = ruby_system
 
@@ -140,6 +138,9 @@ if _HAS_VIP_CONTROLLER:
             self.data_channel_size = cache_line_size
 
             # ── MessageBuffers ─────────────────────────────────────────────────
+            # For SimpleNetwork (Pt2Pt), connections are made through ext_links
+            # by the topology — do NOT connect to network.in_port/out_port here.
+            # For GarnetNetwork, those connections would be needed instead.
             self.reqOut = MessageBuffer()
             self.rspOut = MessageBuffer()
             self.snpOut = MessageBuffer()
@@ -148,14 +149,6 @@ if _HAS_VIP_CONTROLLER:
             self.rspIn  = MessageBuffer()
             self.snpIn  = MessageBuffer()
             self.datIn  = MessageBuffer()
-            self.reqOut.out_port = network.in_port
-            self.rspOut.out_port = network.in_port
-            self.snpOut.out_port = network.in_port
-            self.datOut.out_port = network.in_port
-            self.reqIn.in_port   = network.out_port
-            self.rspIn.in_port   = network.out_port
-            self.snpIn.in_port   = network.out_port
-            self.datIn.in_port   = network.out_port
 
             # Generous TBE counts for a high-performance RTL DUT.
             self.transitions_per_cycle = 1024

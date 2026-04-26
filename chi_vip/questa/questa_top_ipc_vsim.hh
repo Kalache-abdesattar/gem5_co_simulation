@@ -26,7 +26,7 @@ using namespace sc_core;
 using namespace sc_dt;
 using ReqFlit = sc_bv<chi_flit::CHI_REQ_FLIT_W>;
 using RspFlit = sc_bv<chi_flit::CHI_RSP_FLIT_W>;
-using DatFlit = sc_bv<chi_flit::CHI_DAT_FLIT_W>;
+using DatFlit = sc_lv<chi_flit::CHI_DAT_FLIT_W>;  // must match questa_top_ipc.hh
 using SnpFlit = sc_bv<chi_flit::CHI_SNP_FLIT_W>;
 
 // ─────────────────────────────────────────────────────────────────────────────

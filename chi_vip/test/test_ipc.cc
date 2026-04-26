@@ -558,7 +558,7 @@ static void test_struct_sizes()
 {
     printf("\n── struct_sizes ───────────────────────────────────────────────\n");
     // These must not change without bumping the protocol version.
-    CHECK(sizeof(ChiIpcRsp) == 12,  "ChiIpcRsp is 12 bytes");
+    CHECK(sizeof(ChiIpcRsp) == 14,  "ChiIpcRsp is 14 bytes");
     CHECK(sizeof(ChiIpcDat) == 160, "ChiIpcDat is 160 bytes");
     CHECK(sizeof(ChiIpcSnp) == 24,  "ChiIpcSnp is 24 bytes");
 
@@ -1121,6 +1121,378 @@ static void test_layout_offset_zero()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 27. ChiIpcReq.exp_comp_ack roundtrips
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_req_exp_comp_ack()
+{
+    printf("\n── req_exp_comp_ack ───────────────────────────────────────────\n");
+    std::string name = shm_name(271);
+    ChiShmHandle h(name, /*create=*/true);
+    ChiShmLayout* lay = h.layout();
+
+    // exp_comp_ack = 1
+    ChiIpcReq r1{};
+    r1.opcode       = 0x01; // ReadShared
+    r1.exp_comp_ack = 1;
+    lay->q2g_req.push(r1);
+    ChiIpcReq o1{};
+    lay->q2g_req.pop(o1);
+    CHECK(o1.exp_comp_ack == 1, "req_exp_comp_ack: value=1 preserved");
+
+    // exp_comp_ack = 0
+    ChiIpcReq r0{};
+    r0.opcode       = 0x30; // ReadNoSnp
+    r0.exp_comp_ack = 0;
+    lay->q2g_req.push(r0);
+    ChiIpcReq o0{};
+    lay->q2g_req.pop(o0);
+    CHECK(o0.exp_comp_ack == 0, "req_exp_comp_ack: value=0 preserved");
+
+    // Check exp_comp_ack is distinct from adjacent fields (pcrd_type)
+    ChiIpcReq r2{};
+    r2.pcrd_type    = 0xF;
+    r2.exp_comp_ack = 1;
+    lay->q2g_req.push(r2);
+    ChiIpcReq o2{};
+    lay->q2g_req.pop(o2);
+    CHECK(o2.pcrd_type    == 0xF, "req_exp_comp_ack: pcrd_type not clobbered");
+    CHECK(o2.exp_comp_ack == 1,   "req_exp_comp_ack: exp_comp_ack=1 with pcrd_type=0xF");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 28. ChiIpcRsp.fwd_state and data_pull roundtrip
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_rsp_fwd_state_data_pull()
+{
+    printf("\n── rsp_fwd_state_data_pull ────────────────────────────────────\n");
+    std::string name = shm_name(281);
+    ChiShmHandle h(name, /*create=*/true);
+    ChiShmLayout* lay = h.layout();
+
+    // All three fwd_state bits + data_pull combinations
+    for (uint8_t fs = 0; fs < 8; fs++) {
+        for (uint8_t dp = 0; dp < 2; dp++) {
+            ChiIpcRsp r{};
+            r.opcode     = 0x04;
+            r.txn_id     = static_cast<uint8_t>(fs * 2 + dp);
+            r.fwd_state  = fs;
+            r.data_pull  = dp;
+            lay->g2q_rsp.push(r);
+            ChiIpcRsp out{};
+            lay->g2q_rsp.pop(out);
+            CHECK(out.fwd_state == fs,
+                  ("rsp fwd_state=" + std::to_string(fs)).c_str());
+            CHECK(out.data_pull == dp,
+                  ("rsp data_pull=" + std::to_string(dp) + " (fwd_state=" +
+                   std::to_string(fs) + ")").c_str());
+        }
+    }
+
+    // Verify neither field clobbers the others
+    ChiIpcRsp r{};
+    r.opcode     = 0x0B; // CompDBIDResp
+    r.txn_id     = 0x77;
+    r.resp       = 0x02;
+    r.resp_err   = 0x01;
+    r.db_id      = 0x55;
+    r.fwd_state  = 0x05;
+    r.data_pull  = 0x01;
+    lay->g2q_rsp.push(r);
+    ChiIpcRsp out{};
+    lay->g2q_rsp.pop(out);
+    CHECK(out.resp      == 0x02, "rsp: resp not clobbered by fwd_state");
+    CHECK(out.resp_err  == 0x01, "rsp: resp_err not clobbered by data_pull");
+    CHECK(out.db_id     == 0x55, "rsp: db_id not clobbered by new fields");
+    CHECK(out.fwd_state == 0x05, "rsp: fwd_state=5 preserved alongside other fields");
+    CHECK(out.data_pull == 0x01, "rsp: data_pull=1 preserved alongside other fields");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 29. ChiIpcDat.cc_id roundtrip (all 4 values, 2-bit field)
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_dat_cc_id()
+{
+    printf("\n── dat_cc_id ──────────────────────────────────────────────────\n");
+    std::string name = shm_name(291);
+    ChiShmHandle h(name, /*create=*/true);
+    ChiShmLayout* lay = h.layout();
+
+    for (uint8_t cc = 0; cc < 4; cc++) {
+        ChiIpcDat d{};
+        d.opcode   = 0x04;
+        d.txn_id   = cc;
+        d.cc_id    = cc;
+        d.data_len = 64;
+        lay->g2q_dat.push(d);
+        ChiIpcDat out{};
+        lay->g2q_dat.pop(out);
+        CHECK(out.cc_id  == cc, ("dat cc_id=" + std::to_string(cc) + " preserved").c_str());
+        CHECK(out.txn_id == cc, "dat txn_id not clobbered by cc_id");
+    }
+
+    // cc_id must not affect data[] or be[]
+    ChiIpcDat d{};
+    d.opcode   = 0x04;
+    d.cc_id    = 0x03;  // max 2-bit
+    d.data_len = 64;
+    for (int i = 0; i < 64; i++) { d.data[i] = 0xCD; d.be[i] = 0xFF; }
+    lay->g2q_dat.push(d);
+    ChiIpcDat out{};
+    lay->g2q_dat.pop(out);
+    CHECK(out.cc_id == 0x03, "dat cc_id=3 (max 2-bit) preserved");
+    bool data_ok = true;
+    for (int i = 0; i < 64; i++) if (out.data[i] != 0xCD) data_ok = false;
+    CHECK(data_ok, "dat data[] not clobbered by cc_id=3");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (renumbered) ChiIpcReq struct size: 32 bytes, no hidden trailing padding
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_req_struct_size()
+{
+    printf("\n── req_struct_size ────────────────────────────────────────────\n");
+    // sizeof must be exactly 32 — _pad[9] makes all padding explicit.
+    // Previously _pad[3] left 6 hidden bytes; this test catches any regression.
+    CHECK(sizeof(ChiIpcReq) == 32, "ChiIpcReq is exactly 32 bytes");
+
+    // Verify _pad bytes zero-initialised when using {} init (no garbage leakage)
+    ChiIpcReq r{};
+    const uint8_t* raw = reinterpret_cast<const uint8_t*>(&r);
+    bool tail_zero = true;
+    for (size_t i = 23; i < 32; i++) if (raw[i] != 0) tail_zero = false;
+    CHECK(tail_zero, "ChiIpcReq _pad bytes are zero after {} init");
+
+    // Alignment: struct must be 8-byte aligned (due to uint64_t addr)
+    CHECK(alignof(ChiIpcReq) == 8, "ChiIpcReq alignment is 8");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 28. ChiIpcDat full field coverage (addr, db_id, resp_err, src_id, tgt_id)
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_dat_full_fields()
+{
+    printf("\n── dat_full_fields ────────────────────────────────────────────\n");
+    std::string name = shm_name(28);
+    ChiShmHandle h(name, /*create=*/true);
+    ChiShmLayout* lay = h.layout();
+
+    ChiIpcDat d{};
+    d.addr      = 0xFEDCBA9876543000ULL;  // cache-line aligned
+    d.opcode    = 0x04;     // CompData
+    d.txn_id    = 0xAB;
+    d.src_id    = 0x7F;     // max 7-bit NodeID in uint16_t
+    d.tgt_id    = 0x55;
+    d.home_n_id = 0x12;
+    d.db_id     = 0x00FE;   // max TXNID_W=8 minus 1
+    d.qos       = 0xD;
+    d.resp      = 0x03;     // UC_Dirty
+    d.resp_err  = 0x03;     // DERR
+    d.data_id   = 1;
+    d.data_len  = 64;
+    for (int i = 0; i < 64; i++) {
+        d.data[i] = static_cast<uint8_t>(0x80 ^ i);
+        d.be[i]   = (i < 32) ? 0xFF : 0x00;  // first half enabled
+    }
+
+    lay->g2q_dat.push(d);
+    ChiIpcDat out{};
+    lay->g2q_dat.pop(out);
+
+    CHECK(out.addr      == d.addr,      "dat_full: addr preserved");
+    CHECK(out.opcode    == d.opcode,    "dat_full: opcode preserved");
+    CHECK(out.txn_id    == d.txn_id,    "dat_full: txn_id preserved");
+    CHECK(out.src_id    == d.src_id,    "dat_full: src_id preserved");
+    CHECK(out.tgt_id    == d.tgt_id,    "dat_full: tgt_id preserved");
+    CHECK(out.home_n_id == d.home_n_id, "dat_full: home_n_id preserved");
+    CHECK(out.db_id     == d.db_id,     "dat_full: db_id preserved");
+    CHECK(out.qos       == d.qos,       "dat_full: qos preserved");
+    CHECK(out.resp      == d.resp,      "dat_full: resp preserved");
+    CHECK(out.resp_err  == d.resp_err,  "dat_full: resp_err DERR preserved");
+    CHECK(out.data_id   == d.data_id,   "dat_full: data_id=1 preserved");
+    CHECK(out.data_len  == d.data_len,  "dat_full: data_len=64 preserved");
+
+    bool data_ok = true, be_ok = true;
+    for (int i = 0; i < 64; i++) {
+        if (out.data[i] != static_cast<uint8_t>(0x80 ^ i)) data_ok = false;
+        uint8_t exp_be = (i < 32) ? 0xFF : 0x00;
+        if (out.be[i] != exp_be) be_ok = false;
+    }
+    CHECK(data_ok, "dat_full: data bytes preserved");
+    CHECK(be_ok,   "dat_full: partial BE (first half) preserved");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 29. tryOpen called on already-open handle is a no-op (returns true, no double-open)
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_tryopen_idempotent()
+{
+    printf("\n── tryopen_idempotent ─────────────────────────────────────────\n");
+    std::string name = shm_name(29);
+    ChiShmHandle creator(name, /*create=*/true);
+
+    ChiShmHandle att(name, /*create=*/false);
+    bool first = att.tryOpen();
+    CHECK(first, "tryopen_idempotent: first tryOpen succeeds");
+    CHECK(att.valid(), "tryopen_idempotent: valid after first open");
+
+    ChiShmLayout* p1 = att.layout();
+    bool second = att.tryOpen();
+    CHECK(second, "tryopen_idempotent: second tryOpen returns true");
+    CHECK(att.layout() == p1, "tryopen_idempotent: layout ptr unchanged on re-open");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 30. req.size max value (0x7, 3-bit) roundtrips without truncation
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_req_size_max()
+{
+    printf("\n── req_size_max ───────────────────────────────────────────────\n");
+    std::string name = shm_name(30);
+    ChiShmHandle h(name, /*create=*/true);
+    ChiShmLayout* lay = h.layout();
+
+    ChiIpcReq r{};
+    r.size   = 0x7;   // 3-bit max (128 bytes — not valid CHI but IPC just passes it)
+    r.opcode = 0x30;  // ReadNoSnp
+    r.txn_id = 0xF0;
+
+    lay->q2g_req.push(r);
+    ChiIpcReq out{};
+    lay->q2g_req.pop(out);
+
+    CHECK(out.size   == 0x7,  "req_size_max: size=0x7 (3-bit max) preserved");
+    CHECK(out.opcode == 0x30, "req_size_max: opcode preserved alongside");
+    CHECK(out.txn_id == 0xF0, "req_size_max: txn_id preserved alongside");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 31. Bidirectional independence: q2g_req and g2q_rsp do not interfere
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_bidirectional_independence()
+{
+    printf("\n── bidirectional_independence ─────────────────────────────────\n");
+    std::string name = shm_name(31);
+    ChiShmHandle h(name, /*create=*/true);
+    ChiShmLayout* lay = h.layout();
+
+    // Push 5 REQs on the q2g path
+    ChiIpcReq req{};
+    req.opcode = 0x01;
+    for (int i = 0; i < 5; i++) {
+        req.txn_id = static_cast<uint8_t>(i + 0x10);
+        req.addr   = 0x1000 + static_cast<uint64_t>(i) * 64;
+        lay->q2g_req.push(req);
+    }
+
+    // Push 5 RSPs on the g2q path (opposite direction)
+    ChiIpcRsp rsp{};
+    rsp.opcode = 0x04;
+    for (int i = 0; i < 5; i++) {
+        rsp.txn_id = static_cast<uint8_t>(i + 0x20);
+        rsp.db_id  = static_cast<uint16_t>(i + 0x30);
+        lay->g2q_rsp.push(rsp);
+    }
+
+    // Drain and verify both directions independently
+    int req_cnt = 0, rsp_cnt = 0;
+    bool req_ok = true, rsp_ok = true;
+    ChiIpcReq ro{};
+    ChiIpcRsp rs{};
+    while (lay->q2g_req.pop(ro)) {
+        if (ro.txn_id != static_cast<uint8_t>(req_cnt + 0x10)) req_ok = false;
+        req_cnt++;
+    }
+    while (lay->g2q_rsp.pop(rs)) {
+        if (rs.txn_id != static_cast<uint8_t>(rsp_cnt + 0x20)) rsp_ok = false;
+        if (rs.db_id  != static_cast<uint16_t>(rsp_cnt + 0x30)) rsp_ok = false;
+        rsp_cnt++;
+    }
+
+    CHECK(req_cnt == 5,  "bidir: q2g_req: 5 REQs received");
+    CHECK(rsp_cnt == 5,  "bidir: g2q_rsp: 5 RSPs received");
+    CHECK(req_ok,        "bidir: q2g_req: txn_ids in order");
+    CHECK(rsp_ok,        "bidir: g2q_rsp: fields in order");
+    CHECK(lay->q2g_req.empty(), "bidir: q2g_req empty after test");
+    CHECK(lay->g2q_rsp.empty(), "bidir: g2q_rsp empty after test");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 32. src_id wider than 7-bit NodeID (uint16_t can hold 0x1234)
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_src_id_wide()
+{
+    printf("\n── src_id_wide ────────────────────────────────────────────────\n");
+    std::string name = shm_name(32);
+    ChiShmHandle h(name, /*create=*/true);
+    ChiShmLayout* lay = h.layout();
+
+    // RSP struct has src_id as uint16_t; verify it holds >7-bit values
+    ChiIpcRsp r{};
+    r.opcode = 0x04;
+    r.src_id = 0x1234;  // wider than 7-bit NodeID
+    r.tgt_id = 0x5678;
+    lay->g2q_rsp.push(r);
+    ChiIpcRsp out{};
+    lay->g2q_rsp.pop(out);
+    CHECK(out.src_id == 0x1234, "src_id_wide: RSP src_id=0x1234 preserved (uint16_t)");
+    CHECK(out.tgt_id == 0x5678, "src_id_wide: RSP tgt_id=0x5678 preserved (uint16_t)");
+
+    // REQ struct has src_id as uint16_t too
+    ChiIpcReq req{};
+    req.src_id = 0xABCD;
+    req.tgt_id = 0xEF01;
+    lay->q2g_req.push(req);
+    ChiIpcReq rout{};
+    lay->q2g_req.pop(rout);
+    CHECK(rout.src_id == 0xABCD, "src_id_wide: REQ src_id=0xABCD preserved");
+    CHECK(rout.tgt_id == 0xEF01, "src_id_wide: REQ tgt_id=0xEF01 preserved");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 33. create=true over a stale segment (shm_unlink-on-entry path)
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void test_create_over_stale()
+{
+    printf("\n── create_over_stale ──────────────────────────────────────────\n");
+    std::string name = shm_name(33);
+
+    // First creation — write a sentinel
+    {
+        ChiShmHandle first(name, /*create=*/true);
+        first.layout()->gem5_grant_ps.store(0xDEADC0DE);
+        // Destructor calls shm_unlink
+    }
+
+    // Second creation — should silently unlink any remnant and start fresh
+    // (The destructor of 'first' already unlinked it, but the constructor
+    //  also calls shm_unlink proactively before opening — test that path
+    //  works even if the segment still exists from a crash scenario.)
+    //
+    // Simulate a "crash remnant" by manually re-creating the segment
+    // without mapping it (just leave a stale file-descriptor-less entry).
+    shm_open(name.c_str(), O_CREAT | O_RDWR, 0600);  // stale ghost
+
+    {
+        ChiShmHandle second(name, /*create=*/true);
+        CHECK(second.valid(), "create_over_stale: second create succeeds");
+        CHECK(second.layout() != nullptr, "create_over_stale: layout ptr valid");
+        // The stale sentinel must NOT be visible (fresh shm is zero-initialized)
+        CHECK(second.layout()->gem5_grant_ps.load() == 0,
+              "create_over_stale: fresh shm is zero-initialised (no stale data)");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // main
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1154,6 +1526,16 @@ int main()
     test_interleaved_push_pop();
     test_dat_binary_pattern();
     test_layout_offset_zero();
+    test_req_exp_comp_ack();
+    test_rsp_fwd_state_data_pull();
+    test_dat_cc_id();
+    test_req_struct_size();
+    test_dat_full_fields();
+    test_tryopen_idempotent();
+    test_req_size_max();
+    test_bidirectional_independence();
+    test_src_id_wide();
+    test_create_over_stale();
 
     printf("\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

@@ -14,6 +14,41 @@
 #include <unistd.h>   // usleep
 #include <cstring>
 
+// ── DPI-C data bypass ────────────────────────────────────────────────────────
+// Questa's SC→SV bridge for sc_lv<637> only propagates bits 0-31 to SV.
+// DATA bits (636:125) and BE bits (124:61) never reach the SV side via the
+// sc_out port.  We bypass this by storing the pre-staged data in a C global
+// and exposing a DPI-C export function that questa_top_ipc_wrap.sv calls to
+// reconstruct the full flit in SV.
+//
+// questa_get_rxdat_data() is called from the SV wrapper's always block when
+// rxdat_flit_sc or rxdat_flitv changes.  It returns DATA (512 bits = 16×uint32)
+// and BE (64 bits = 2×uint32), both least-significant word first.
+static uint8_t  s_rxdat_data[64] = {};
+static uint64_t s_rxdat_be       = 0;
+
+extern "C" {
+// svBitVecVal = uint32_t; defined in svdpi.h (which sccom finds automatically)
+// We declare it manually to avoid requiring the explicit include.
+typedef unsigned int BvVal;
+
+void questa_get_rxdat_data(BvVal* data_w, BvVal* be_w)
+{
+    // 512 bits of DATA → 16 × uint32, little-endian word order (word 0 = bits 31:0)
+    for (int w = 0; w < 16; w++) {
+        uint32_t v = 0;
+        for (int b = 0; b < 4; b++) {
+            int idx = w * 4 + b;
+            if (idx < 64) v |= (uint32_t)s_rxdat_data[idx] << (b * 8);
+        }
+        data_w[w] = v;
+    }
+    // 64 bits of BE → 2 × uint32
+    be_w[0] = (uint32_t)(s_rxdat_be & 0xFFFFFFFFu);
+    be_w[1] = (uint32_t)(s_rxdat_be >> 32);
+}
+} // extern "C"
+
 namespace gem5 { namespace ruby {
 
 using namespace sc_core;
@@ -75,6 +110,8 @@ void questa_top_ipc::clk_posedge()
         while (!rsp_out_q_.empty()) rsp_out_q_.pop();
         while (!dat_out_q_.empty()) dat_out_q_.pop();
         while (!snp_out_q_.empty()) snp_out_q_.pop();
+        memset(s_rxdat_data, 0, sizeof(s_rxdat_data));
+        s_rxdat_be = 0;
         rsp_lcrd_ = dat_lcrd_ = snp_lcrd_ = 0;
         req_lcrd_init_ = rsp_lcrd_init_ = dat_lcrd_init_ = CHI_INIT_LCRD;
         questa_ps_ = 0;
@@ -156,10 +193,26 @@ void questa_top_ipc::clk_posedge()
         rxrsp_flitpend.write(!rsp_out_q_.empty() && rsp_lcrd_ > 0);
     }
 
-    // RXDAT
+    // RXDAT — single-cycle.
+    // DATA (bits 636:125) and BE (bits 124:61) are transferred to SV via the
+    // DPI bypass function questa_get_rxdat_data(), which the SV wrapper calls
+    // from its always block when rxdat_flit_sc changes.  The globals must be
+    // populated BEFORE rxdat_flit.write() triggers that always block.
     if (!dat_out_q_.empty() && dat_lcrd_ > 0) {
+        const DatFlit& nxt = dat_out_q_.front();
+        using F2 = chi_flit::dat_f;
+        // Populate DPI globals (bypasses SC→SV bridge truncation of sc_lv<637>).
+        s_rxdat_be = 0;
+        for (int i = 0; i < 64; i++) {
+            if (chi_flit::bf_getb(nxt, F2::BE_LO + i))
+                s_rxdat_be |= (1ULL << i);
+        }
+        for (int i = 0; i < 64; i++) {
+            s_rxdat_data[i] = static_cast<uint8_t>(
+                nxt.range(F2::DATA_LO + i*8 + 7, F2::DATA_LO + i*8).to_uint());
+        }
         rxdat_flitv.write(true);
-        rxdat_flit.write(dat_out_q_.front());
+        rxdat_flit.write(nxt);
         dat_out_q_.pop();
         --dat_lcrd_;
         rxdat_flitpend.write(!dat_out_q_.empty() && dat_lcrd_ > 0);
@@ -197,6 +250,8 @@ RspFlit questa_top_ipc::ipc_to_rsp_flit(const chi_ipc::ChiIpcRsp& m)
     e.resp.set_resp_err(static_cast<chi::rsp_resperrtype_e>(m.resp_err));
     e.resp.set_pcrd_type(m.pcrd_type);
     e.resp.set_db_id(m.db_id);
+    e.resp.set_fwd_state(m.fwd_state);
+    e.resp.set_data_pull(static_cast<bool>(m.data_pull));
     RspFlit f;
     pack_rsp(e, f);
     return f;
@@ -215,6 +270,7 @@ DatFlit questa_top_ipc::ipc_to_dat_flit(const chi_ipc::ChiIpcDat& m)
     e.dat.set_resp_err(static_cast<chi::rsp_resperrtype_e>(m.resp_err));
     e.dat.set_db_id(m.db_id);
     e.dat.set_data_id(m.data_id);
+    e.dat.set_cc_id(m.cc_id);
     int beat_bytes = (m.data_len > 0 && m.data_len <= CHI_DATA_W_BYTES)
                    ? static_cast<int>(m.data_len)
                    : CHI_DATA_W_BYTES;
@@ -226,6 +282,9 @@ DatFlit questa_top_ipc::ipc_to_dat_flit(const chi_ipc::ChiIpcDat& m)
     using F = chi_flit::dat_f;
     for (int i = 0; i < CHI_DATA_W_BYTES; i++)
         bf_setb(f, F::BE_LO + i, m.be[i] != 0);
+
+    // Debug: verify data bits are packed correctly (remove after fixing)
+
     return f;
 }
 
@@ -267,9 +326,10 @@ chi_ipc::ChiIpcReq questa_top_ipc::req_flit_to_ipc(const ReqFlit& f)
     m.mem_attr    = static_cast<uint8_t>( bf_get(f, F::MEMATTR_LO, F::MEMATTR_W));
     m.size        = static_cast<uint8_t>( bf_get(f, F::SIZE_LO, F::SIZE_W));
     // EXCL_LO == SNOOPME_LO: same flit bit, alternative semantics by opcode
-    m.exc_l       = static_cast<uint8_t>( bf_getb(f, F::EXCL_LO));
-    m.snoop_me    = static_cast<uint8_t>( bf_getb(f, F::SNOOPME_LO));
-    m.pcrd_type   = static_cast<uint8_t>( bf_get(f, F::PCRDTYPE_LO, F::PCRDTYPE_W));
+    m.exc_l         = static_cast<uint8_t>( bf_getb(f, F::EXCL_LO));
+    m.snoop_me      = static_cast<uint8_t>( bf_getb(f, F::SNOOPME_LO));
+    m.pcrd_type     = static_cast<uint8_t>( bf_get(f, F::PCRDTYPE_LO, F::PCRDTYPE_W));
+    m.exp_comp_ack  = static_cast<uint8_t>( bf_getb(f, F::EXPCOMPACK_LO));
     return m;
 }
 
@@ -286,6 +346,8 @@ chi_ipc::ChiIpcRsp questa_top_ipc::rsp_flit_to_ipc(const RspFlit& f)
     m.resp_err  = static_cast<uint8_t>( bf_get(f, F::RESPERR_LO, F::RESPERR_W));
     m.pcrd_type = static_cast<uint8_t>( bf_get(f, F::PCRDTYPE_LO, F::PCRDTYPE_W));
     m.db_id     = static_cast<uint16_t>(bf_get(f, F::DBID_LO, F::DBID_W));
+    m.fwd_state = static_cast<uint8_t>( bf_get(f, F::FWDSTATE_LO, F::FWDSTATE_W));
+    m.data_pull = static_cast<uint8_t>( bf_getb(f, F::DATAPULL_LO));
     return m;
 }
 
@@ -306,6 +368,7 @@ chi_ipc::ChiIpcDat questa_top_ipc::dat_flit_to_ipc(const DatFlit& f)
     m.resp      = static_cast<uint8_t>( bf_get(f, F::RESP_LO, F::RESP_W));
     m.resp_err  = static_cast<uint8_t>( bf_get(f, F::RESPERR_LO, F::RESPERR_W));
     m.data_id   = static_cast<uint8_t>( bf_get(f, F::DATAID_LO, F::DATAID_W));
+    m.cc_id     = static_cast<uint8_t>( bf_get(f, F::CCID_LO, F::CCID_W));
     m.data_len  = CHI_DATA_W_BYTES;
     for (int i = 0; i < CHI_DATA_W_BYTES; i++) {
         m.data[i] = static_cast<uint8_t>(

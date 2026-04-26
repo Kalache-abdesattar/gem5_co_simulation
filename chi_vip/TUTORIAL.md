@@ -936,6 +936,461 @@ Time: 313501 ps  Errors: 0, Warnings: 0
 
 ---
 
+#### RXDAT DATA field — DPI bypass mechanism
+
+Questa's SC→SV bridge for `sc_lv<N>` ports only propagates words [0:31] to SV
+when N > 32 (a Questa-specific co-simulation limitation).  For the 637-bit
+`rxdat_flit`, this means bits [636:32] — which include DATA [636:125] and BE
+[124:61] — arrive as `X` in SV if the SC→SV bridge is used directly.
+
+`questa_top_ipc_wrap.sv` works around this with a DPI-C bypass:
+
+1. **C++ side** (`questa_top_ipc.cc`): before writing `rxdat_flit`, the module
+   stores the DATA and BE bytes into two module-level globals:
+   ```cpp
+   uint32_t s_rxdat_data[16];   // 512-bit DATA (LSW first)
+   uint32_t s_rxdat_be[2];      // 64-bit BE
+   ```
+   An exported DPI-C function packs them into `svBitVecVal` arrays:
+   ```cpp
+   extern "C" void questa_get_rxdat_data(
+       svBitVecVal* data_w,   // 16 × uint32, LSW first → bit[511:0]
+       svBitVecVal* be_w)     // 2  × uint32, LSW first → bit[63:0]
+   ```
+
+2. **SV side** (`questa_top_ipc_wrap.sv`): an `always` block triggered by
+   `rxdat_flit_sc` (the SC-driven intermediate signal) or `rxdat_flitv` calls
+   `questa_get_rxdat_data()` and reassembles the full 637-bit flit:
+   ```sv
+   always @(rxdat_flit_sc, rxdat_flitv) begin
+       questa_get_rxdat_data(rxdat_dpi_data, rxdat_dpi_be);
+       rxdat_flit = {rxdat_dpi_data, rxdat_dpi_be, rxdat_flit_sc[60:0]};
+   end
+   ```
+   The header bits [60:0] are propagated correctly by the SC→SV bridge (they
+   fit in the first 32-bit word), so only DATA and BE need the DPI path.
+
+3. **`bit` not `logic` for DPI output variables**: the DPI function uses
+   `output bit [511:0]` / `output bit [63:0]` parameter types, which map to
+   `svBitVecVal*` (uint32_t array).  If the SV variables are declared as
+   `logic` (4-state, `svLogicVecVal*`), Questa writes to the wrong pointer type
+   and the variables remain as `X`.  `rxdat_dpi_data` and `rxdat_dpi_be` are
+   declared `bit` to match.
+
+4. **Delta-cycle capture ordering**: in `wait_dat`, a `#0` delay after sampling
+   `rxdat_flitv=1` lets the `always` block settle before `rxdat_flit` is
+   captured into a local variable.  Without it there is a race between the
+   SC→SV bridge propagation and the testbench capture point.
+
+---
+
+### Step 3.5c — Full gem5 co-simulation with tb_gem5_cosim.sv (verified)
+
+`questa/tb_gem5_cosim.sv` is an end-to-end SV testbench that drives real CHI
+transactions through `questa_top_ipc_wrap` into gem5's HN-F (Ruby) and checks
+responses on RXDAT and RXRSP.  Verified on 2026-04-22 (vsim 2024.2 + gem5
+25.0.0): **54/54 checks pass** across 13 test groups.
+
+| Group | Description | Checks |
+|-------|-------------|--------|
+| [1] | ReadNoSnp → CompData | 3 |
+| [2] | ReadShared → CompData | 3 |
+| [3] | Two pipelined ReadNoSnp | 4 |
+| [4] | gem5_grant_ps advances | 1 |
+| [5] | RESP=UC(2) in CompData | 3 |
+| [6] | ReadNoSnp fresh address | 3 |
+| [7] | Four pipelined ReadNoSnp | 6 |
+| [8] | TXNID reuse | 4 |
+| [9] | ReadNotSharedDirty (0x07) | 3 |
+| [10] | ReadUnique (0x0B) | 3 |
+| [11] | Eight pipelined ReadNoSnp | 10 |
+| [12] | ReadUnique + CompAck + WriteBackFull data round-trip | 5 |
+| [13] | WriteUniqueFull + ReadNoSnp data round-trip | 6 |
+
+Unlike `tb_ipc_vsim.sv` (which uses a shm mock), this testbench requires gem5
+to be running with `chi_hnf_only.py`.
+
+#### Prerequisites — important differences from standalone testbench
+
+| Item | Requirement |
+|------|-------------|
+| `systemc_sv.so` | Built with `LD_PRELOAD` at vsim runtime (see below) |
+| gem5 build | `BUILD_VIP=1 CHI_VIP_IPC_PATH=…/chi_vip/ipc` |
+| gem5 config | `chi_hnf_only.py` — HN-F only, **no CPUs**, rate-limited loop |
+| `data_width` | Must be 64 (not 32) — set in `chi_hnf_only.py` (see below) |
+| vsim launch | `LD_PRELOAD=/usr/lib64/libstdc++.so.6` required |
+
+#### Why `LD_PRELOAD` is needed (GLIBCXX 3.4.29)
+
+`systemc_sv.so` links `libsystemc_cpp17.a` which references
+`__throw_bad_array_new_length@GLIBCXX_3.4.29`.  The `.so` is built with
+Questa's `gcc-10.3.0` (`QUESTA_CXX`) so its own GLIBCXX requirement stays at
+3.4.28 — but `libsystemc_cpp17.a` pulls in the 3.4.29 reference regardless.
+Questa's bundled `libstdc++.so.6` (inside `gcc-10.3.0/lib64/`) only provides
+up to 3.4.28.
+
+**Fix:** prepend the system `libstdc++.so.6` (provides 3.4.34 on Fedora/RHEL)
+with `LD_PRELOAD` so vsim's dynamic linker picks it up before Questa's copy.
+
+This does **not** require relinking `systemc_sv.so`; the `.so` already works —
+it just needs a libstdc++ that satisfies 3.4.29 at load time.
+
+#### Why `data_width=64` is required
+
+gem5's default `CHI_config.NoC_Params.data_width = 32`, meaning a 64-byte
+cache line is transferred as two 32-byte beats.  Each beat arrives as a
+separate DAT flit with its own `TXNID` field.  The second beat of transaction
+A can appear on the IPC queue after the first beat of transaction B, causing
+the SV testbench to see the same `TXNID` twice or responses out of order.
+
+Setting `data_width = 64` makes gem5 produce a single-beat CompData response
+per request — one DAT flit, one TXNID, unambiguous.
+
+Add the following near the top of `config/chi/chi_hnf_only.py` (before
+`Ruby.create_system` is called):
+
+```python
+import importlib as _il
+_il.import_module('ruby.CHI_config').NoC_Params.data_width = 64
+```
+
+#### Why `chi_hnf_only.py` (no CPUs) requires a rate-limiting loop
+
+Without CPUs, gem5's event queue is idle.  `m5.simulate(N)` returns immediately
+after scheduling N ticks of no-ops — gem5 races through hundreds of billions of
+ticks in seconds, writing the `gem5_grant_ps` marker far ahead of Questa's
+wall-clock time.  The shm ring buffers fill, and `questa_top_ipc` starves
+because no gem5 wakeup processes the requests.
+
+The fix is to slice the simulation into short time slices and sleep between
+each one so gem5's virtual time stays close to Questa's wall-clock time:
+
+```python
+import time as _time
+GRANT_PS = 1_000_000_000   # advance 1 µs per slice
+SLEEP_S  = 0.001            # sleep 1 ms real-time between slices
+
+ticks_left = args.max_ticks
+while ticks_left > 0:
+    grant = min(GRANT_PS, ticks_left)
+    exit_event = m5.simulate(grant)
+    ticks_left -= grant
+    if exit_event.getCause() != 'simulate() limit reached':
+        break
+    _time.sleep(SLEEP_S)
+```
+
+This keeps gem5 ≈1 µs ahead of real time per loop, giving `VIPController`
+regular wakeup opportunities to drain the shm `q2g_req` ring.
+
+#### Build
+
+```bash
+# From chi_vip/
+
+# 1. Build systemc_sv.so and compile SV wrapper + tb_gem5_cosim (if needed)
+make questa_build_cosim
+```
+
+`make questa_build_cosim` compiles:
+- `questa_build/work/systemc_sv.so` — SC bridge (minimal sc_main)
+- `questa_build/work/questa_top_ipc_wrap` — SV wrapper module
+- `questa_build/work/tb_gem5_cosim` — co-sim testbench
+
+#### gem5 build
+
+```bash
+cd gem5/
+python3 $(which scons) build/X86_CHI/gem5.opt BUILD_VIP=1 \
+    CHI_VIP_IPC_PATH=/home/dmk/fedora/gem5_co_simulation/chi_vip/ipc -j12
+```
+
+#### Running the co-simulation
+
+Run in two separate terminals.  **gem5 must start first.**
+
+```bash
+# Terminal 1 — gem5 HN-F only (no CPUs)
+cd gem5/
+build/X86_CHI/gem5.opt ../config/chi/chi_hnf_only.py \
+    --max-ticks 500000000000000
+# Wait until gem5 prints: [chi_ipc] created shm '/chi_vip_0'
+```
+
+```bash
+# Terminal 2 — Questa (from chi_vip/ directory)
+LM_LICENSE_FILE=1718@localhost \
+LD_PRELOAD=/usr/lib64/libstdc++.so.6 \
+PATH=/home/dmk/fedora/questa_24/questasim/bin:$PATH \
+vsim -c -lib questa_build/work questa_top_ipc_wrap tb_gem5_cosim \
+    -do "run -all; quit -f"
+```
+
+gem5 exits on its own once Questa finishes (`$finish`).
+
+#### Verified output (vsim 2024.2 + gem5 25.0.0, 2026-04-22)
+
+```
+[1] ReadNoSnp addr=0x1000 → CompData from gem5 HN-F
+  PASS: received DAT flit within 50000 cycles
+  PASS: DAT opcode=CompData(0x4)
+  PASS: DAT txnid matches sent txnid
+
+[2] ReadShared addr=0x2000 → CompData from gem5 HN-F
+  PASS: received DAT flit within 50000 cycles
+  PASS: DAT opcode=CompData(0x4)
+  PASS: DAT txnid=0x02
+
+[3] Two pipelined ReadNoSnp (txnid 0x10, 0x11)
+  PASS: pipelined[0] opcode=CompData
+  PASS: pipelined[1] opcode=CompData
+  PASS: got 2 CompData responses (got 2)
+  PASS: txnids 0x10 and 0x11 both returned
+
+[4] gem5_grant_ps advances monotonically
+  PASS: gem5 processed transactions (grant_ps advanced)
+
+[5] RESP field is UC=2 for ReadNoSnp CompData
+  PASS: received DAT flit for RESP check
+  PASS: RESP=UC(2) got=2
+  PASS: opcode=CompData
+
+[6] ReadNoSnp addr=0x6000 (new address, separate request)
+  PASS: received DAT flit for addr=0x6000
+  PASS: DAT opcode=CompData(0x4)
+  PASS: DAT txnid=0x21
+
+[7] Four pipelined ReadNoSnp (txnid 0x30..0x33)
+  PASS: 4pipe[0] opcode=CompData  ...  PASS: 4pipe[3] opcode=CompData
+  PASS: got 4 CompData responses (got 4)
+  PASS: all 4 txnids 0x30-0x33 returned (mask=1111)
+
+[8] TXNID reuse: same txnid=0x01 on a fresh request
+  PASS: first request with reused txnid received DAT
+  PASS: first reuse: txnid=0x01 returned
+  PASS: second request with reused txnid received DAT
+  PASS: second reuse: txnid=0x01 returned
+
+[9] ReadNotSharedDirty addr=0x10000 (opcode 0x07)
+  PASS: received DAT flit
+  PASS: DAT opcode=CompData(0x4)
+  PASS: DAT txnid=0x60
+
+[10] ReadUnique addr=0x11000 (opcode 0x0B)
+  PASS: received DAT flit
+  PASS: DAT opcode=CompData(0x4)
+  PASS: DAT txnid=0x61
+
+[11] Eight pipelined ReadNoSnp (txnid 0x40..0x47)
+  PASS: 8pipe[0..7] opcode=CompData  (8 checks)
+  PASS: got 8 CompData responses (got 8)
+  PASS: all 8 txnids 0x40-0x47 returned (mask=11111111)
+
+[12] ReadUnique+CompAck+WriteBackFull data round-trip (addr=0x30000)
+  PASS: WBF setup: ReadUnique received CompData
+  PASS: WriteBackFull: received RSP from gem5
+  PASS: RSP opcode=DBIDResp(5) or CompDBIDResp(7), got=0x7
+  PASS: WBF round-trip: ReadNoSnp received CompData
+  PASS: WBF data byte0=0xA5 byte1=0x5A, got 0xa5/0x5a
+
+[13] WriteUniqueFull + ReadNoSnp data round-trip (addr=0x40000)
+  PASS: WriteUniqueFull: received RSP from gem5
+  PASS: RSP opcode=DBIDResp(5) or CompDBIDResp(7), got=0x7
+  PASS: WriteUnique+Read: received CompData
+  PASS: readback opcode=CompData(0x4)
+  PASS: readback byte0=0xC3, got=0xc3
+  PASS: readback byte1=0x3C, got=0x3c
+
+=== RESULTS: 54 passed, 0 failed ===
+```
+
+#### DAT flit field positions (chi_flit_pack.hh dat_f, NODEID_W=7 TXNID_W=8)
+
+These are **different** from the REQ and RSP flit layouts.  Use these offsets
+when extracting fields from RXDAT flits in your SV testbench:
+
+| Field | Bits | Width | Notes |
+|-------|------|-------|-------|
+| QOS | [3:0] | 4 | |
+| TGTID | [10:4] | 7 | |
+| HOMEID | [17:11] | 7 | (not SRCID like in REQ) |
+| OPCODE | [21:18] | 4 | CompData = 0x4 |
+| RESPERR | [23:22] | 2 | |
+| RESP | [26:24] | 3 | UC = 2 |
+| FWDSTATE | [29:27] | 3 | |
+| DATAPULL | [30] | 1 | |
+| DBID | [38:31] | 8 | |
+| CCID | [40:39] | 2 | |
+| DATAID | [42:41] | 2 | |
+| TAGOP | [44:43] | 2 | |
+| TXNID | [52:45] | 8 | matches the TXNID sent in the REQ |
+| SRCID | [59:53] | 7 | |
+| BE | [124:61] | 64 | byte enables |
+| DATA | [636:125] | 512 | cache line data; byte 0 = bits [132:125] |
+
+A common mistake is to use the REQ flit's TXNID position ([25:18]) or the RSP
+flit's OPCODE width (6 bits) for a DAT flit.  Both are wrong.
+
+#### RSP flit field positions (chi_flit_pack.hh rsp_f, NODEID_W=7 TXNID_W=8)
+
+Used for both RXRSP (gem5 → DUT) and TXRSP (DUT → gem5):
+
+| Field | Bits | Width | Notes |
+|-------|------|-------|-------|
+| QOS | [3:0] | 4 | |
+| TGTID | [10:4] | 7 | |
+| SRCID | [17:11] | 7 | |
+| TXNID | [25:18] | 8 | requestor's transaction ID |
+| OPCODE | [31:26] | 6 | Comp=0x01, DBIDResp=0x05, CompDBIDResp=0x07 |
+| RESPERR | [33:32] | 2 | |
+| RESP | [36:34] | 3 | |
+| FWDSTATE | [39:37] | 3 | |
+| DATAPULL | [40] | 1 | |
+| DBID | [48:41] | 8 | write credit ID (present in DBIDResp / CompDBIDResp) |
+| PCRDTYPE | [52:49] | 4 | |
+
+#### WriteUniqueFull transaction flow (test [12])
+
+gem5's CHI HN-F (`CHI-cache.sm`) does **not** handle `WriteNoSnp` (opcode
+0x24) or `WriteNoSnpPtl` (0x23) when they arrive from an external requestor.
+`CHI-cache-funcs.sm::reqToEvent()` has no case for these types and calls
+`error("Invalid CHIRequestType")`.  The CHI-mem.sm (downstream memory
+controller) does handle WriteNoSnp, but only for writes forwarded from the
+HN-F — not for requests arriving from VIPController.
+
+Use **WriteUniqueFull** (opcode 0x21) instead.  It IS in `reqToEvent` and
+maps to `Event:WriteUniqueFull_PoC` at the HN-F level.
+
+WriteUniqueFull requires a two-phase handshake on the RSP channel before write
+data can be sent.  The testbench handles this in test [12]:
+
+```
+1. Grant rxrsp_lcrdv = 1 (pre-credit so questa_top_ipc can drive RSP immediately).
+2. Send REQ (opcode 0x21 WriteUniqueFull) on TXREQ.
+3. Wait for RXRSP (up to 100000 cycles).
+   gem5 responds with either:
+     CompDBIDResp (opcode 0x07) — combined Comp + DBID in one RSP (typical)
+     DBIDResp     (opcode 0x05) — separate DBID; Comp follows after write data
+4. Extract DBID from the RSP flit [48:41].
+5. Send NonCopyBackWrData (opcode 0x02) on TXDAT:
+     TGTID = HN-F node ID (0x0)
+     TXNID = same as the original REQ TXNID
+     DBID  = value from step 4
+     BE    = 64'hFFFF...  (all bytes valid)
+     DATA  = 512-bit payload (byte 0 at bits [636:125] i.e. DATA[7:0])
+6. If step 3 returned DBIDResp (not CompDBIDResp): grant rxrsp_lcrdv and
+   wait for a Comp RSP (opcode 0x01).
+7. Read back the written address with ReadNoSnp to verify data persisted.
+```
+
+> **Note:** The DAT flit has no ADDR field.  gem5 finds the write address
+> by matching the TXNID to the pending TBE created when it processed the REQ.
+
+#### WriteBackFull transaction flow (test [12])
+
+`WriteBackFull` (opcode 0x04) is the standard RN-F dirty eviction.  The DUT
+must first own the line in a dirty state (obtained via `ReadUnique`), then
+evict it with `WriteBackFull` + `CBWrData`.
+
+```
+1. Send ReadUnique REQ (opcode 0x0B) on TXREQ.
+2. Wait for CompData on RXDAT — gem5 responds with UC state.
+3. Send CompAck RSP (opcode 0x04) on TXRSP:
+     TGTID = source from the CompData SRCID field (home node ID)
+     TXNID = CompData's DBID field [38:31] (home-assigned ID for the Ack)
+     Note: CompAck opcode is 0x04, not 0x06 (0x06 is SnpRespData).
+4. Grant rxrsp_lcrdv = 1 so gem5's DBIDResp can arrive.
+5. Send WriteBackFull REQ (opcode 0x04) on TXREQ:
+     TGTID = HN-F node ID (0x0)
+     TXNID = DUT-allocated transaction ID
+6. Wait for RXRSP: gem5 responds with DBIDResp (0x05) or CompDBIDResp (0x07).
+7. Extract DBID from the RSP flit [48:41].
+8. Send CBWrData_UD_PD (CopyBackWrData, opcode 0x02, RESP=5) on TXDAT:
+     TGTID = HN-F node ID
+     TXNID = same as WriteBackFull REQ TXNID
+     DBID  = value from step 7
+     RESP  = 5 (UD_PD — Unique Dirty, Partial Dirty — non-stale writeback)
+     BE    = all-ones (full cacheline valid)
+     DATA  = 512-bit payload
+9. If step 6 returned DBIDResp (not CompDBIDResp): wait for separate Comp RSP.
+10. Read back the address with ReadNoSnp to verify data persisted in gem5.
+```
+
+**RESP value for CBWrData:** non-stale `WriteBackFull` requires `RESP=5`
+(`CBWrData_UD_PD`, Unique Dirty with Partial Dirty tag).  Using `RESP=0` or
+`RESP=2` causes gem5's HN-F to treat it as a clean eviction and discard the
+data rather than writing it to memory.
+
+**CompAck opcode:** opcode 0x04 is `CompAck` (RSP channel).  Opcode 0x06 is
+`SnpRespData` (DAT channel).  Both are easy to confuse; using 0x06 here will
+cause gem5 to panic with an invalid message type.
+
+**DAT flit has no ADDR field:** gem5 matches write-back data to the pending TBE
+by `TXNID`, not by address.  The `TXNID` in the DAT flit must match the
+`TXNID` used in the `WriteBackFull` REQ.
+
+---
+
+#### WriteNoSnp limitation
+
+`WriteNoSnp` (0x24) and `WriteNoSnpPtl` (0x23) are intended for I/O devices
+writing to non-cacheable memory.  In gem5's CHI topology, these requests bypass
+the HN-F cache coherency logic and go directly to the memory controller
+(CHI-mem.sm / SNF).  When an external requestor (VIPController) routes them to
+the HN-F (MachineType_Cache), the HN-F's SLICC doesn't know how to handle them.
+If you need DMA-style writes, use WriteUniqueFull (0x21) which the HN-F handles
+correctly.
+
+#### VIPController fixes required for co-simulation
+
+The following fixes in `gem5/src/mem/ruby/protocol/chi/vip/VIPController.cc`
+were necessary to make the co-simulation work.  Without them, requests are
+silently discarded or gem5 panics.
+
+**1. MachineType for HN-F destination**
+
+gem5's CHI topology registers all machines (both RN-F and HN-F) as
+`MachineType_Cache`, not `MachineType_Directory`.  Using `MachineType_Directory`
+in `NetDest::add` triggers an assertion because no such machine type exists.
+
+```cpp
+// in makeReqMsg():
+MachineID tgt = mapAddressToDownstreamMachine(
+    static_cast<Addr>(m.addr), MachineType_Cache);  // NOT MachineType_Directory
+msg->getDestination().add(tgt);
+```
+
+**2. `usesTxnId` must be false**
+
+gem5's HN-F SLICC (`CHI-cache-ports.sm` line 411) asserts `!in_msg.usesTxnId`
+for every incoming REQ flit from an external requestor.  Setting it true causes
+an invalid-transition panic.
+
+```cpp
+msg->setusesTxnId(false);
+```
+
+**3. Non-zero enqueue latency**
+
+`MessageBuffer::enqueue` panics if delta==0 and `allow_zero_latency=false`
+(the default).  Always use at least one cycle of latency:
+
+```cpp
+Tick lat = cyclesToTicks(Cycles(1));
+reqOut->enqueue(msg, curTick(), lat, false, false);
+```
+
+**4. Self-identify as requestor**
+
+The requestor field of the CHI message must be set to `m_machineID` so that
+gem5's response routing sends the CompData back to the VIPController:
+
+```cpp
+msg->setrequestor(m_machineID);
+```
+
+---
+
 ### Step 3.6 — Shm naming with multiple DUT instances
 
 When `--num-vip-nodes > 1`, pass a unique shm name to each `questa_top_ipc`:
@@ -993,10 +1448,13 @@ level will recover.
 - [ ] `vip_shm_names` in Python config matches `questa_top_ipc` constructor argument
 - [ ] gem5 started **before** vsim (creates the shm segment)
 - [ ] vsim launched with `make questa_build_sv` output (`_sc/.../systemc.so` = sv variant)
+- [ ] `LD_PRELOAD=/usr/lib64/libstdc++.so.6` set in vsim environment (GLIBCXX 3.4.29 fix)
 - [ ] SV wrapper `questa_top_ipc_wrap.sv` instantiated in DUT testbench
 - [ ] `vgencomp` run to confirm 22-port list (see Step 3.4)
 - [ ] DUT grants `rxrsp_lcrdv` / `rxdat_lcrdv` / `rxsnp_lcrdv` (same as standalone)
 - [ ] Both `.so` files linked with `QUESTA_CXX` (gcc-10.3.0), not system g++ (GLIBCXX compat)
+- [ ] `NoC_Params.data_width = 64` set in gem5 config for single-beat DAT responses
+- [ ] gem5 config uses rate-limiting loop (GRANT_PS + SLEEP_S) if running without CPUs
 
 ### Common pitfalls
 
@@ -1078,12 +1536,53 @@ no static instance) and installs it as the `_sc/.../systemc.so` that vsim loads.
 
 **vsim fails to load systemc.so: `GLIBCXX_3.4.29 not found`**
 
-The `.so` was linked with system g++ (≥14) which requires `GLIBCXX_3.4.30`.
-Questa's bundled `libstdc++.so.6` (gcc-10.3.0) only provides up to 3.4.28.
+There are two separate cases:
 
-Fix: link with `$(QUESTA_CXX)` — Questa's bundled `gcc-10.3.0` g++.  The
-Makefile `questa_build` and `questa_build_sv` targets use `$(QUESTA_CXX)`
-automatically.
+*Case A — `.so` built with system g++ (≥14):*
+The `.so` requires `GLIBCXX_3.4.30` or higher.  Fix: link with `$(QUESTA_CXX)`
+(Questa's bundled `gcc-10.3.0`).  The Makefile `questa_build` and
+`questa_build_sv` targets use `$(QUESTA_CXX)` automatically.
+
+*Case B — `.so` built with `QUESTA_CXX` but still gets 3.4.29 error at runtime:*
+`libsystemc_cpp17.a` references `__throw_bad_array_new_length@GLIBCXX_3.4.29`
+regardless of which g++ built it.  Questa's bundled `libstdc++` only provides
+up to 3.4.28, so vsim still fails at load time even though the `.so` was built
+with the right compiler.
+
+Fix: export `LD_PRELOAD=/usr/lib64/libstdc++.so.6` before running vsim.
+The system `libstdc++.so.6` (Fedora/RHEL provides GLIBCXX_3.4.34) satisfies
+the 3.4.29 requirement without affecting any other Questa behaviour.
+
+**Questa bug: wide vector slice in SV function argument returns X**
+
+Questa (at least through 2024.2) incorrectly returns X when slicing a wide
+vector (> ~64 bits) passed as a function argument.  For example:
+
+```systemverilog
+function automatic logic [511:0] dat_data(input logic [CHI_DAT_FLIT_W-1:0] f);
+    return f[636:125];   // ← Questa returns X for this slice on 637-bit arg
+endfunction
+```
+
+Calling `dat_data(rxdat_flit)[7:0]` will yield X even though
+`rxdat_flit[132:125]` (the same bits via direct slice) is correct.
+
+**Fix:** replace function calls that extract fields from wide flit vectors with
+direct bit-slices on the module-level signal:
+
+```systemverilog
+// Wrong (Questa 2024.2 bug):
+check(dat_data(dat)[7:0] == 8'hA5, ...);
+
+// Correct:
+check(dat[132:125] == 8'hA5, ...);
+```
+
+This affects any field extraction function that takes a `logic [636:0]` (or
+similarly wide) argument and returns a slice.  Functions operating on narrower
+vectors (e.g. 56-bit RSP or 113-bit REQ) are not affected.
+
+---
 
 **Ring buffer overrun warnings in IPC mode**
 
@@ -1237,8 +1736,9 @@ chi_vip/
 │   ├── questa_top_ipc_vsim.hh/.cc        ← Step 3.3: flat wrapper; SC_MODULE_EXPORT for vgencomp
 │   ├── questa_cosim_top_ipc.cc           ← sc_main for standalone vsim (static g_qt instance)
 │   ├── questa_sc_main.cc                 ← minimal sc_main for SV-wrapper vsim (no static SC)
-│   ├── questa_top_ipc_wrap.sv            ← Step 3.5b: SV wrapper for questa_top_ipc_vsim
-│   ├── tb_ipc_vsim.sv                    ← Step 3.5b: SV testbench (21 checks; verified vsim 2024.2)
+│   ├── questa_top_ipc_wrap.sv            ← Step 3.5b/c: SV wrapper for questa_top_ipc_vsim
+│   ├── tb_ipc_vsim.sv                    ← Step 3.5b: standalone SV testbench (21 checks; verified vsim 2024.2)
+│   ├── tb_gem5_cosim.sv                  ← Step 3.5c: full co-sim testbench (54 checks; requires gem5)
 │   ├── questa_top_wrap.sv                ← Step 1.2/1.5: SV wrapper for standalone mode
 │   └── README.md                         ← reference: port table, L-credit protocol
 ├── questa_build/

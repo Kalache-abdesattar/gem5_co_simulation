@@ -63,6 +63,8 @@ class ChiGlobalNoC(SimpleNetwork):
         # Create one router/switch per controller in the system
         self.routers = [Switch(router_id=i, ext_routing_latency=1, int_routing_latency=1) for i in range(len(controllers))]
 
+        _bandwidth_factor = 16 
+
         # Make a link from each controller to the router. The link goes
         # externally to the network.
         self.ext_links = [

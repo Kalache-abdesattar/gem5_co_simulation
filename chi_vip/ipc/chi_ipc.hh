@@ -39,6 +39,7 @@ namespace gem5 { namespace ruby { namespace chi_ipc {
 
 // REQ channel  (q2g: DUT → gem5 HN-F)
 struct ChiIpcReq {
+    // ── CHI Issue D fields (offsets 0–23) ──────────────────────────────────
     uint64_t addr;          // cache-line address
     uint8_t  opcode;        // chi::req_optype_e integer
     uint8_t  txn_id;
@@ -53,11 +54,25 @@ struct ChiIpcReq {
     uint8_t  snoop_me;      // 1 = SnoopMe
     uint8_t  exc_l;         // 1 = Exclusive
     uint8_t  pcrd_type;     // 4-bit PCrdType
-    uint8_t  _pad[3];
+    uint8_t  exp_comp_ack;  // 1 = ExpCompAck (RN-F will send CompAck)
+    // ── CHI Issue E / E.b fields (offsets 24–35) — scaffolding, always 0 ──
+    uint8_t  tag_op;        // [E]   TagOp[1:0]: 0=Invalid 1=Transfer 2=Update 3=Match
+    uint8_t  pbha;          // [E]   Page-Based Hardware Attributes [3:0]
+    uint16_t mpam;          // [E]   {MPAMNS[0], MPAMPartID[8:0], MPAMPerfMon[0]}
+    uint16_t mecid;         // [E.b] Memory Encryption Context ID [15:0]
+    uint8_t  cah;           // [E.b] Cache Allocation Hint
+    uint8_t  trace_tag;     // [E.b] TraceTag: flag for system-level trace
+    uint8_t  c_busy;        // [E.b] Component Busy [2:0]: pipeline pressure hint
+    uint8_t  p_group_id;    // [E]   Persistence Group ID [7:0]
+    uint8_t  stash_group_id;// [E]   Stash Group ID [7:0]
+    uint8_t  tag_group_id;  // [E]   Tag Group ID [7:0]
+    uint8_t  _pad[4];       // explicit padding to sizeof=40
 };
+static_assert(sizeof(ChiIpcReq) == 40, "ChiIpcReq layout changed — update protocol version");
 
 // RSP channel  (q2g or g2q)
 struct ChiIpcRsp {
+    // ── CHI Issue D fields (offsets 0–13) ──────────────────────────────────
     uint8_t  opcode;        // chi::rsp_optype_e integer
     uint8_t  txn_id;
     uint16_t src_id;
@@ -67,11 +82,19 @@ struct ChiIpcRsp {
     uint8_t  resp_err;      // chi::rsp_resperrtype_e integer
     uint8_t  pcrd_type;
     uint16_t db_id;
+    uint8_t  fwd_state;     // 3-bit FwdState (forwarding snoops)
+    uint8_t  data_pull;     // 1 = DataPull request included
+    // ── CHI Issue E / E.b fields (offsets 14–16) — scaffolding, always 0 ──
+    uint8_t  tag_op;        // [E]   TagOp[1:0]: echoed tag operation
+    uint8_t  trace_tag;     // [E.b] TraceTag: propagated trace marker
+    uint8_t  c_busy;        // [E.b] Component Busy [2:0]
+    uint8_t  _pad[3];       // explicit padding to sizeof=20
 };
-static_assert(sizeof(ChiIpcRsp) == 12, "");
+static_assert(sizeof(ChiIpcRsp) == 20, "ChiIpcRsp layout changed — update protocol version");
 
 // DAT channel  (q2g or g2q)
 struct ChiIpcDat {
+    // ── CHI Issue D fields (offsets 0–24) ──────────────────────────────────
     uint64_t addr;
     uint8_t  opcode;        // chi::dat_optype_e integer
     uint8_t  txn_id;
@@ -84,14 +107,25 @@ struct ChiIpcDat {
     uint8_t  resp_err;      // chi::rsp_resperrtype_e integer
     uint8_t  data_id;
     uint16_t data_len;      // number of valid data bytes (0 = no data)
-    uint8_t  _pad[2];
+    uint8_t  cc_id;         // 2-bit Critical Chunk ID
+    // ── CHI Issue E / E.b fields (offsets 25–33) — scaffolding, always 0 ──
+    uint8_t  tag_op;        // [E]   TagOp[1:0]: tag operation for this data flit
+    uint8_t  trace_tag;     // [E.b] TraceTag: propagated trace marker
+    uint8_t  c_busy;        // [E.b] Component Busy [2:0]
+    uint8_t  data_source;   // [E]   DataSource[3:0]: 0=normal 1=prefetch 2=DRAM …
+    uint8_t  tu;            // [E]   Tag Update mask [3:0]: 1 bit per 16B granule
+    uint8_t  _pad[2];       // explicit padding to align uint16_t fields at offset 32
+    uint16_t mecid;         // [E.b] Memory Encryption Context ID [15:0]
+    uint16_t tag;           // [E]   Memory tags: 4 bits per 16B granule (16 bits for 64B line)
+    // ── Payload (data[] aligned at offset 36) ──────────────────────────────
     uint8_t  data[64];      // full cache-line payload (zero-padded)
     uint8_t  be[64];        // byte enables (0x00 or 0xff per byte)
 };
-static_assert(sizeof(ChiIpcDat) == 160, "");
+static_assert(sizeof(ChiIpcDat) == 168, "ChiIpcDat layout changed — update protocol version");
 
 // SNP channel  (g2q: gem5 HN-F → DUT)
 struct ChiIpcSnp {
+    // ── CHI Issue D fields (offsets 0–19) ──────────────────────────────────
     uint64_t addr;
     uint8_t  opcode;        // chi::snp_optype_e integer
     uint8_t  txn_id;
@@ -103,9 +137,15 @@ struct ChiIpcSnp {
     uint8_t  ret_to_src;
     uint8_t  do_not_goto_sd;
     uint8_t  do_not_data_pull;
-    uint8_t  _pad[2];
+    // ── CHI Issue E / E.b fields (offsets 20–24) — scaffolding, always 0 ──
+    uint8_t  tag_op;        // [E]   TagOp[1:0]: tag operation for snoop with tag transfer
+    uint8_t  trace_tag;     // [E.b] TraceTag: propagated trace marker
+    uint8_t  c_busy;        // [E.b] Component Busy [2:0]
+    uint8_t  _pad[1];       // explicit padding to align mpam at offset 24
+    uint16_t mpam;          // [E]   MPAM[10:0]: forwarded partitioning context
+    uint8_t  _pad2[6];      // explicit padding to sizeof=32
 };
-static_assert(sizeof(ChiIpcSnp) == 24, "");
+static_assert(sizeof(ChiIpcSnp) == 32, "ChiIpcSnp layout changed — update protocol version");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Single-producer / single-consumer ring buffer

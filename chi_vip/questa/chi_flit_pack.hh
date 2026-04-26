@@ -23,23 +23,24 @@ namespace chi_flit {
 // ─────────────────────────────────────────────────────────────────────────────
 // Bit-field helpers for sc_bv<N>
 // ─────────────────────────────────────────────────────────────────────────────
-template<int N>
-inline uint64_t bf_get(const sc_dt::sc_bv<N>& v, int lo, int width) {
+// Generic bit-field helpers — work with both sc_bv<N> and sc_lv<N>.
+template<typename V>
+inline uint64_t bf_get(const V& v, int lo, int width) {
     return v.range(lo + width - 1, lo).to_uint64();
 }
 
-template<int N>
-inline void bf_set(sc_dt::sc_bv<N>& v, int lo, int width, uint64_t val) {
+template<typename V>
+inline void bf_set(V& v, int lo, int width, uint64_t val) {
     v.range(lo + width - 1, lo) = val & ((1ULL << width) - 1);
 }
 
 // Single-bit helpers.
-template<int N>
-inline bool bf_getb(const sc_dt::sc_bv<N>& v, int bit) {
+template<typename V>
+inline bool bf_getb(const V& v, int bit) {
     return v.get_bit(bit) != 0;
 }
-template<int N>
-inline void bf_setb(sc_dt::sc_bv<N>& v, int bit, bool val) {
+template<typename V>
+inline void bf_setb(V& v, int bit, bool val) {
     v.set_bit(bit, val ? sc_dt::Log_1 : sc_dt::Log_0);
 }
 
@@ -266,7 +267,7 @@ inline void unpack_rsp(const sc_dt::sc_bv<CHI_RSP_FLIT_W>& f,
 // ─────────────────────────────────────────────────────────────────────────────
 // DAT flit ↔ chi_data_extension (inbound: DUT → HN-F proxy)
 // ─────────────────────────────────────────────────────────────────────────────
-inline void unpack_dat(const sc_dt::sc_bv<CHI_DAT_FLIT_W>& f,
+inline void unpack_dat(const sc_dt::sc_lv<CHI_DAT_FLIT_W>& f,
                        tlm::tlm_generic_payload& gp,
                        chi::chi_data_extension& e,
                        uint8_t* data_buf /* CHI_DATA_W_BYTES bytes */)
@@ -326,10 +327,16 @@ inline void pack_rsp(const chi::chi_ctrl_extension& e,
 inline void pack_dat(const chi::chi_data_extension& e,
                      const uint8_t* data_bytes,
                      int beat_bytes,
-                     sc_dt::sc_bv<CHI_DAT_FLIT_W>& f)
+                     sc_dt::sc_lv<CHI_DAT_FLIT_W>& f)
 {
     using F = dat_f;
-    f = 0;
+    // Explicitly zero all bits in 32-bit chunks.  sc_lv<637> operator=(int 0)
+    // is implementation-defined in Questa's SC runtime and may only clear the
+    // first word, leaving DATA field bits (125-636) as 4-state 'x'.
+    for (int lo = 0; lo < CHI_DAT_FLIT_W; lo += 32) {
+        int hi = std::min(lo + 31, CHI_DAT_FLIT_W - 1);
+        f.range(hi, lo) = 0;
+    }
     bf_set(f, F::QOS_LO,      F::QOS_W,    e.cmn.get_qos());
     bf_set(f, F::SRCID_LO,    F::SRCID_W,  e.cmn.get_src_id());
     bf_set(f, F::TXNID_LO,    F::TXNID_W,  e.cmn.get_txn_id());

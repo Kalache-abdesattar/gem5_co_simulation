@@ -44,6 +44,16 @@
 
 `timescale 1ps/1ps
 
+// DPI-C import: questa_get_rxdat_data is exported from systemc.so (questa_top_ipc.cc).
+// Returns DATA (512 bits) and BE (64 bits) of the pre-staged DAT flit.  Questa's
+// SC→SV bridge for sc_lv<637> only propagates bits 0-31; DATA/BE (bits 636:61)
+// are transferred via this DPI bypass instead.
+// svBitVecVal arrays: data_w[16] = 512 bits (lsw first), be_w[2] = 64 bits.
+import "DPI-C" function void questa_get_rxdat_data(
+    output bit [511:0] data_bits,   // DATA field: 512 bits
+    output bit  [63:0] be_bits      // BE field:    64 bits
+);
+
 package chi_ipc_pkg;
     // Flit widths — must match chi_flit_cfg.hh
     // NODEID_W=7  TXNID_W=8  ADDR_W=44  DATA_W_BYTES=64
@@ -105,32 +115,29 @@ module questa_top_ipc_wrap
     input  logic                       rxsnp_lcrdv
 );
 
-    // ── SC module instantiation ─────────────────────────────────────────────
-    // questa_top_ipc_vsim is the SC_MODULE_EXPORT-registered flat wrapper.
-    // Questa's elaboration connects the SystemC module's ports to these
-    // SV signals automatically by name matching.
+    // ── Internal: SC module drives rxdat_flit_sc; we reconstruct rxdat_flit ──
+    // Questa's SC→SV bridge for sc_lv<637> only propagates bits 0-31 to SV.
+    // DATA (bits 636:125) and BE (bits 124:61) are transferred via the DPI
+    // bypass function questa_get_rxdat_data() exported from systemc.so.
+    // The always block reassembles the full 637-bit flit from:
+    //   - rxdat_flit_sc[60:0]  : header (bits 60:0), propagated correctly
+    //   - be_bits[63:0]        : BE field (64 bits), via DPI
+    //   - data_bits[511:0]     : DATA field (512 bits), via DPI
     //
-    // Port list confirmed by vgencomp:
-    //   component questa_top_ipc_vsim port (
-    //     clk : in std_logic; rstn : in std_logic;
-    //     txreq_flitv : in std_logic; txreq_flitpend : in std_logic;
-    //     txreq_flit : in std_logic_vector(112 downto 0);
-    //     txreq_lcrdv : out std_logic;
-    //     txrsp_flitv : in std_logic; txrsp_flitpend : in std_logic;
-    //     txrsp_flit : in std_logic_vector(55 downto 0);
-    //     txrsp_lcrdv : out std_logic;
-    //     txdat_flitv : in std_logic; txdat_flitpend : in std_logic;
-    //     txdat_flit : in std_logic_vector(636 downto 0);
-    //     txdat_lcrdv : out std_logic;
-    //     rxrsp_flitv : out std_logic; rxrsp_flitpend : out std_logic;
-    //     rxrsp_flit : out std_logic_vector(55 downto 0);
-    //     rxrsp_lcrdv : in std_logic;
-    //     rxdat_flitv : out std_logic; rxdat_flitpend : out std_logic;
-    //     rxdat_flit : out std_logic_vector(636 downto 0);
-    //     rxdat_lcrdv : in std_logic;
-    //     rxsnp_flitv : out std_logic; rxsnp_flitpend : out std_logic;
-    //     rxsnp_flit : out std_logic_vector(84 downto 0);
-    //     rxsnp_lcrdv : in std_logic);
+    // IMPORTANT: intermediate DPI result variables must be declared as 'bit'
+    // (2-state) to match the DPI function's 'output bit' parameter types.
+    // Using 'logic' (4-state) causes a type mismatch: Questa writes svBitVecVal*
+    // (uint32_t array) but the variable expects svLogicVecVal* (aval/bval pairs),
+    // so the write-back silently fails and the variables remain as 'x'.
+    logic [CHI_DAT_FLIT_W-1:0] rxdat_flit_sc;
+    bit   [511:0] rxdat_dpi_data;
+    bit    [63:0] rxdat_dpi_be;
+
+    always @(rxdat_flit_sc, rxdat_flitv) begin
+        questa_get_rxdat_data(rxdat_dpi_data, rxdat_dpi_be);
+        rxdat_flit = {rxdat_dpi_data, rxdat_dpi_be, rxdat_flit_sc[60:0]};
+    end
+
     questa_top_ipc_vsim u_chi_ipc (
         .clk             (clk),
         .rstn            (rstn),
@@ -152,7 +159,7 @@ module questa_top_ipc_wrap
         .rxrsp_lcrdv     (rxrsp_lcrdv),
         .rxdat_flitv     (rxdat_flitv),
         .rxdat_flitpend  (rxdat_flitpend),
-        .rxdat_flit      (rxdat_flit),
+        .rxdat_flit      (rxdat_flit_sc),   // SC drives internal signal
         .rxdat_lcrdv     (rxdat_lcrdv),
         .rxsnp_flitv     (rxsnp_flitv),
         .rxsnp_flitpend  (rxsnp_flitpend),

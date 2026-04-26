@@ -37,7 +37,7 @@ namespace gem5 { namespace ruby {
 // Convenience type aliases driven by chi_flit_pack.hh constexpr widths.
 using ReqFlit = sc_dt::sc_bv<chi_flit::CHI_REQ_FLIT_W>;
 using RspFlit = sc_dt::sc_bv<chi_flit::CHI_RSP_FLIT_W>;
-using DatFlit = sc_dt::sc_bv<chi_flit::CHI_DAT_FLIT_W>;
+using DatFlit = sc_dt::sc_lv<chi_flit::CHI_DAT_FLIT_W>;
 using SnpFlit = sc_dt::sc_bv<chi_flit::CHI_SNP_FLIT_W>;
 
 SC_MODULE(questa_top)

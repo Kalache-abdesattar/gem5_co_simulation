@@ -68,7 +68,7 @@ class MemoryController(CHI_Memory_Controller):
 
         self.addr_ranges = ranges
         self.memory_out_port = port
-        self.data_channel_size = 32
+        self.data_channel_size = 64  # match CHI_DATA_W_BYTES=64 on Questa side
 
         self.connectQueues(network)
 
