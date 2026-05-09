@@ -133,6 +133,14 @@ SC_MODULE(questa_top_ipc)
     // active cycle so snoops can proceed without waiting for CVA6 credits.
     bool snp_lcrd_preloaded_{false};
 
+    // RSP credits (rxrsp_lcrdv) are asserted by the testbench only while a
+    // wait_rsp task is active.  For autonomously-generated HN-F responses
+    // (e.g. CompDBIDResp for a CVA6-hardware-initiated WriteBackPtl), no
+    // wait_rsp is in flight, so rsp_lcrd_ stays 0 and the flit is never sent.
+    // Pre-load rsp_lcrd_ to CHI_INIT_LCRD on the first active cycle so the
+    // HN-F can send RSP flits at any time.
+    bool rsp_lcrd_preloaded_{false};
+
     // The ICN spends one credit per 256-bit RTL beat forwarded to hnf_rxdatflitv.
     // Each assembled 512-bit IPC DAT consumed two beats, so we must return two
     // credits.  pending_extra_dat_crd_ holds credits deferred to the next cycle.

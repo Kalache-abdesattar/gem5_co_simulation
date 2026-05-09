@@ -116,6 +116,7 @@ void questa_top_ipc::clk_posedge()
         dat_tx_cooldown_ = 0;
         pending_extra_dat_crd_ = 0;
         snp_lcrd_preloaded_ = false;
+        rsp_lcrd_preloaded_ = false;
         req_lcrd_init_ = rsp_lcrd_init_ = dat_lcrd_init_ = CHI_INIT_LCRD;
         questa_ps_ = 0;
         return;
@@ -134,6 +135,18 @@ void questa_top_ipc::clk_posedge()
         snp_lcrd_preloaded_ = true;
         fprintf(stderr, "[ipc] SNP credit pre-load: snp_lcrd_=%u @%lupc\n",
                 snp_lcrd_, (unsigned long)questa_ps_);
+    }
+
+    // RSP credits (rxrsp_lcrdv) are only asserted by the testbench while a
+    // wait_rsp task is active.  For HN-F responses to autonomously-generated
+    // RN-F transactions (e.g. CVA6 cache-controller WriteBackPtl), no
+    // wait_rsp is running, rsp_lcrd_ stays 0, and CompDBIDResp is never sent.
+    // Pre-load rsp_lcrd_ at init so the HN-F can issue RSP flits at any time.
+    if (!rsp_lcrd_preloaded_) {
+        rsp_lcrd_ += CHI_INIT_LCRD;
+        rsp_lcrd_preloaded_ = true;
+        fprintf(stderr, "[ipc] RSP credit pre-load: rsp_lcrd_=%u @%lupc\n",
+                rsp_lcrd_, (unsigned long)questa_ps_);
     }
 
     // ── Phase 1: init L-credits ───────────────────────────────────────────────
@@ -199,8 +212,12 @@ void questa_top_ipc::clk_posedge()
     // ── Phase 4: drain g2q ring buffers → flit output queues ─────────────────
     {
         chi_ipc::ChiIpcRsp rsp;
-        while (shm->g2q_rsp.pop(rsp))
+        while (shm->g2q_rsp.pop(rsp)) {
+            fprintf(stderr, "[ipc] Phase4 g2q_rsp pop: txn=%u tgt=%u op=0x%02x rsp_lcrd_=%u @%lupc\n",
+                    rsp.txn_id, rsp.tgt_id, rsp.opcode, rsp_lcrd_,
+                    (unsigned long)questa_ps_);
             rsp_out_q_.push(ipc_to_rsp_flit(rsp));
+        }
     }
     {
         chi_ipc::ChiIpcDat dat;
@@ -226,12 +243,18 @@ void questa_top_ipc::clk_posedge()
 
     // RXRSP
     if (!rsp_out_q_.empty() && rsp_lcrd_ > 0) {
+        fprintf(stderr, "[ipc] Phase5 rxrsp_flitv=1 rsp_lcrd_ %u→%u @%lupc\n",
+                rsp_lcrd_, rsp_lcrd_ - 1, (unsigned long)questa_ps_);
         rxrsp_flitv.write(true);
         rxrsp_flit.write(rsp_out_q_.front());
         rsp_out_q_.pop();
         --rsp_lcrd_;
         rxrsp_flitpend.write(!rsp_out_q_.empty() && rsp_lcrd_ > 0);
     } else {
+        if (!rsp_out_q_.empty()) {
+            fprintf(stderr, "[ipc] Phase5 RXRSP STALLED: rsp_out_q_.size=%zu rsp_lcrd_=0 @%lupc\n",
+                    rsp_out_q_.size(), (unsigned long)questa_ps_);
+        }
         rxrsp_flitv.write(false);
         rxrsp_flitpend.write(!rsp_out_q_.empty() && rsp_lcrd_ > 0);
     }
