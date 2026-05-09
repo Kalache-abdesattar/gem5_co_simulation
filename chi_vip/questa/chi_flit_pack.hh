@@ -57,40 +57,40 @@ struct req_f {
     static constexpr int TXNID_LO      = SRCID_LO    + SRCID_W;          // 18
     static constexpr int TXNID_W       = CHI_TXNID_W;
     // ReturnNID / StashNID share the same position (opcode determines semantics)
-    static constexpr int RTNID_LO      = TXNID_LO    + TXNID_W;          // 26
+    static constexpr int RTNID_LO      = TXNID_LO    + TXNID_W;          // 30
     static constexpr int RTNID_W       = CHI_NODEID_W;
-    static constexpr int STASHNIDV_LO  = RTNID_LO    + RTNID_W;          // 33
+    static constexpr int STASHNIDV_LO  = RTNID_LO    + RTNID_W;          // 37
     // ReturnTxnID / StashLPID share the same 4-bit slot
-    static constexpr int RTNTXNID_LO   = STASHNIDV_LO + 1;               // 34
+    static constexpr int RTNTXNID_LO   = STASHNIDV_LO + 1;               // 38
     static constexpr int RTNTXNID_W    = CHI_LPID_W;                      //  4
-    static constexpr int STASHLPIDV_LO = RTNTXNID_LO  + RTNTXNID_W;     // 38
-    static constexpr int OPCODE_LO     = STASHLPIDV_LO + 1;              // 39
+    static constexpr int STASHLPIDV_LO = RTNTXNID_LO  + RTNTXNID_W;     // 42
+    static constexpr int OPCODE_LO     = STASHLPIDV_LO + 1;              // 43
     static constexpr int OPCODE_W      = 7;
-    static constexpr int SIZE_LO       = OPCODE_LO    + OPCODE_W;        // 46
+    static constexpr int SIZE_LO       = OPCODE_LO    + OPCODE_W;        // 50
     static constexpr int SIZE_W        = 3;
-    static constexpr int ADDR_LO       = SIZE_LO      + SIZE_W;          // 49
+    static constexpr int ADDR_LO       = SIZE_LO      + SIZE_W;          // 53
     static constexpr int ADDR_W        = CHI_ADDR_W;
-    static constexpr int NS_LO         = ADDR_LO      + ADDR_W;          // 93
-    static constexpr int LIKELYSH_LO   = NS_LO        + 1;               // 94
-    static constexpr int ALLOWRETRY_LO = LIKELYSH_LO  + 1;               // 95
-    static constexpr int ORDER_LO      = ALLOWRETRY_LO + 1;              // 96
+    static constexpr int NS_LO         = ADDR_LO      + ADDR_W;          // 97
+    static constexpr int LIKELYSH_LO   = NS_LO        + 1;               // 98
+    static constexpr int ALLOWRETRY_LO = LIKELYSH_LO  + 1;               // 99
+    static constexpr int ORDER_LO      = ALLOWRETRY_LO + 1;              // 100
     static constexpr int ORDER_W       = 2;
-    static constexpr int PCRDTYPE_LO   = ORDER_LO     + ORDER_W;         // 98
+    static constexpr int PCRDTYPE_LO   = ORDER_LO     + ORDER_W;         // 102
     static constexpr int PCRDTYPE_W    = 4;
-    static constexpr int MEMATTR_LO    = PCRDTYPE_LO   + PCRDTYPE_W;    // 102
+    static constexpr int MEMATTR_LO    = PCRDTYPE_LO   + PCRDTYPE_W;    // 106
     static constexpr int MEMATTR_W     = 4;
-    static constexpr int SNPATTR_LO    = MEMATTR_LO    + MEMATTR_W;     // 106
-    static constexpr int DWT_LO        = SNPATTR_LO    + 1;              // 107
+    static constexpr int SNPATTR_LO    = MEMATTR_LO    + MEMATTR_W;     // 110
+    static constexpr int DWT_LO        = SNPATTR_LO    + 1;              // 111
     // Excl and SnoopMe are alternative names for the same flit bit (IHI0050E
     // Table 13-1): Excl applies to ReadClean/ReadUnique/CleanUnique/MakeUnique
     // etc.; SnoopMe applies to WriteUnique*.  Both must be set on unpack.
-    static constexpr int EXCL_LO       = DWT_LO        + 1;              // 108
-    static constexpr int SNOOPME_LO    = EXCL_LO;                        // 108 (alias)
-    static constexpr int EXPCOMPACK_LO = SNOOPME_LO    + 1;              // 109
-    static constexpr int TAGOP_LO      = EXPCOMPACK_LO + 1;              // 110
+    static constexpr int EXCL_LO       = DWT_LO        + 1;              // 112
+    static constexpr int SNOOPME_LO    = EXCL_LO;                        // 112 (alias)
+    static constexpr int EXPCOMPACK_LO = SNOOPME_LO    + 1;              // 113
+    static constexpr int TAGOP_LO      = EXPCOMPACK_LO + 1;              // 114
     static constexpr int TAGOP_W       = 2;
-    static constexpr int TRACETAG_LO   = TAGOP_LO      + TAGOP_W;       // 112
-    static constexpr int TOTAL_W       = TRACETAG_LO   + 1;              // 113
+    static constexpr int TRACETAG_LO   = TAGOP_LO      + TAGOP_W;       // 116
+    static constexpr int TOTAL_W       = TRACETAG_LO   + 1;              // 117
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -105,23 +105,23 @@ struct rsp_f {
     static constexpr int SRCID_W      = CHI_NODEID_W;
     static constexpr int TXNID_LO     = SRCID_LO   + SRCID_W;           // 18
     static constexpr int TXNID_W      = CHI_TXNID_W;
-    static constexpr int OPCODE_LO    = TXNID_LO   + TXNID_W;           // 26
+    static constexpr int OPCODE_LO    = TXNID_LO   + TXNID_W;           // 30
     static constexpr int OPCODE_W     = 6;
-    static constexpr int RESPERR_LO   = OPCODE_LO  + OPCODE_W;          // 32
+    static constexpr int RESPERR_LO   = OPCODE_LO  + OPCODE_W;          // 36
     static constexpr int RESPERR_W    = 2;
-    static constexpr int RESP_LO      = RESPERR_LO + RESPERR_W;         // 34
+    static constexpr int RESP_LO      = RESPERR_LO + RESPERR_W;         // 38
     static constexpr int RESP_W       = 3;
-    static constexpr int FWDSTATE_LO  = RESP_LO    + RESP_W;            // 37
+    static constexpr int FWDSTATE_LO  = RESP_LO    + RESP_W;            // 41
     static constexpr int FWDSTATE_W   = 3;
-    static constexpr int DATAPULL_LO  = FWDSTATE_LO + FWDSTATE_W;      // 40
-    static constexpr int DBID_LO      = DATAPULL_LO + 1;                // 41
+    static constexpr int DATAPULL_LO  = FWDSTATE_LO + FWDSTATE_W;      // 44
+    static constexpr int DBID_LO      = DATAPULL_LO + 1;                // 45
     static constexpr int DBID_W       = CHI_TXNID_W;
-    static constexpr int PCRDTYPE_LO  = DBID_LO    + DBID_W;            // 49
+    static constexpr int PCRDTYPE_LO  = DBID_LO    + DBID_W;            // 57
     static constexpr int PCRDTYPE_W   = 4;
-    static constexpr int TAGOP_LO     = PCRDTYPE_LO + PCRDTYPE_W;       // 53
+    static constexpr int TAGOP_LO     = PCRDTYPE_LO + PCRDTYPE_W;       // 61
     static constexpr int TAGOP_W      = 2;
-    static constexpr int TRACETAG_LO  = TAGOP_LO   + TAGOP_W;           // 55
-    static constexpr int TOTAL_W      = TRACETAG_LO + 1;                 // 56
+    static constexpr int TRACETAG_LO  = TAGOP_LO   + TAGOP_W;           // 63
+    static constexpr int TOTAL_W      = TRACETAG_LO + 1;                 // 64
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -145,28 +145,39 @@ struct dat_f {
     static constexpr int DATAPULL_LO  = FWDSTATE_LO + FWDSTATE_W;      // 30
     static constexpr int DBID_LO      = DATAPULL_LO + 1;                // 31
     static constexpr int DBID_W       = CHI_TXNID_W;
-    static constexpr int CCID_LO      = DBID_LO    + DBID_W;            // 39
+    static constexpr int CCID_LO      = DBID_LO    + DBID_W;            // 43
     static constexpr int CCID_W       = 2;
-    static constexpr int DATAID_LO    = CCID_LO    + CCID_W;            // 41
+    static constexpr int DATAID_LO    = CCID_LO    + CCID_W;            // 45
     static constexpr int DATAID_W     = 2;
-    static constexpr int TAGOP_LO     = DATAID_LO  + DATAID_W;          // 43
+    static constexpr int TAGOP_LO     = DATAID_LO  + DATAID_W;          // 47
     static constexpr int TAGOP_W      = 2;
-    static constexpr int TXNID_LO     = TAGOP_LO   + TAGOP_W;           // 45
+    static constexpr int TXNID_LO     = TAGOP_LO   + TAGOP_W;           // 49
     static constexpr int TXNID_W      = CHI_TXNID_W;
-    static constexpr int SRCID_LO     = TXNID_LO   + TXNID_W;           // 53
+    static constexpr int SRCID_LO     = TXNID_LO   + TXNID_W;           // 61
     static constexpr int SRCID_W      = CHI_NODEID_W;
-    static constexpr int TRACETAG_LO  = SRCID_LO   + SRCID_W;           // 60
+    static constexpr int TRACETAG_LO  = SRCID_LO   + SRCID_W;           // 68
     // Byte-enable and data follow the header
-    static constexpr int BE_LO        = TRACETAG_LO + 1;                // 61
+    static constexpr int BE_LO        = TRACETAG_LO + 1;                // 69
     static constexpr int BE_W         = CHI_DATA_W_BYTES;
-    static constexpr int DATA_LO      = BE_LO       + BE_W;             // 61+64=125 (default)
+    static constexpr int DATA_LO      = BE_LO       + BE_W;             // 69+64=133 (default)
     static constexpr int DATA_W       = CHI_DATA_W_BITS;
-    static constexpr int TOTAL_W      = DATA_LO     + DATA_W;           // 637 (default)
+    static constexpr int TOTAL_W      = DATA_LO     + DATA_W;           // 645 (default)
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SNP flit field offsets  (IHI0050E Table 13-2)
-// Note: SNP addresses are cache-line aligned; the 3 LSBs are not transmitted.
+// SNP flit field offsets  (IHI0050E Table 13-2 / CHIE_SNP_FLIT_* macros)
+//
+// Field order matches the RTL chie_defines.v layout exactly so the IPC
+// wire can be forwarded to the DUT without per-field remapping:
+//   [46:0]  — QOS/SRCID/TXNID/FWDNID/FWDTXNID/OPCODE  (bit-exact with RTL)
+//   [90:47] — ADDR (CHI_SNP_ADDR_W bits = CHIE_SNP_ADDR_WIDTH_PARAM)
+//             byte_addr >> 3 (cache-line address); rx_control.sv reconstructs
+//             byte addr as {rxsnp_addr_r[width-6:0], 3'b000}
+//   [93:91] — NS / DONOTGOTOSD / RETTOSRC
+//   [94]    — TRACETAG
+//   [101:95]— TGTID (identifies the target RN-F)
+//
+// Total: CHI_SNP_ADDR_W + CHI_NODEID_W*3 + 37 = 102 bits (default config)
 // ─────────────────────────────────────────────────────────────────────────────
 struct snp_f {
     static constexpr int QOS_LO          = 0;
@@ -175,31 +186,30 @@ struct snp_f {
     static constexpr int SRCID_W         = CHI_NODEID_W;
     static constexpr int TXNID_LO        = SRCID_LO      + SRCID_W;      // 11
     static constexpr int TXNID_W         = CHI_TXNID_W;
-    static constexpr int FWDNID_LO       = TXNID_LO      + TXNID_W;      // 19
+    static constexpr int FWDNID_LO       = TXNID_LO      + TXNID_W;      // 23
     static constexpr int FWDNID_W        = CHI_NODEID_W;
-    static constexpr int FWDTXNID_LO     = FWDNID_LO     + FWDNID_W;    // 26
+    static constexpr int FWDTXNID_LO     = FWDNID_LO     + FWDNID_W;    // 30
     static constexpr int FWDTXNID_W      = CHI_TXNID_W;
-    static constexpr int OPCODE_LO       = FWDTXNID_LO   + FWDTXNID_W;  // 34
+    static constexpr int OPCODE_LO       = FWDTXNID_LO   + FWDTXNID_W;  // 42
     static constexpr int OPCODE_W        = 5;
-    static constexpr int NS_LO           = OPCODE_LO      + OPCODE_W;    // 39
-    static constexpr int DONOTGOTOSD_LO  = NS_LO           + 1;          // 40
-    static constexpr int RETTOSRC_LO     = DONOTGOTOSD_LO  + 1;          // 41
-    static constexpr int DONOTDATAPULL_LO= RETTOSRC_LO     + 1;          // 42
-    // SNP address: bits [CHI_ADDR_W-1:3] of the physical address.
-    // Lower 3 bits are always 0 (cache-line aligned) and not transmitted.
-    static constexpr int ADDR_LO         = DONOTDATAPULL_LO + 1;         // 43
-    static constexpr int ADDR_W          = CHI_ADDR_W - 3;
-    static constexpr int TRACETAG_LO     = ADDR_LO          + ADDR_W;    // 43+41=84
-    static constexpr int TOTAL_W         = TRACETAG_LO      + 1;         // 85
+    static constexpr int ADDR_LO         = OPCODE_LO      + OPCODE_W;    // 47
+    static constexpr int ADDR_W          = CHI_SNP_ADDR_W;               // 44
+    static constexpr int NS_LO           = ADDR_LO        + ADDR_W;      // 91
+    static constexpr int DONOTGOTOSD_LO  = NS_LO           + 1;          // 92
+    static constexpr int RETTOSRC_LO     = DONOTGOTOSD_LO  + 1;          // 93
+    static constexpr int TRACETAG_LO     = RETTOSRC_LO     + 1;          // 94
+    static constexpr int TGTID_LO        = TRACETAG_LO     + 1;          // 95
+    static constexpr int TGTID_W         = CHI_NODEID_W;
+    static constexpr int TOTAL_W         = TGTID_LO        + TGTID_W;    // 102
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Flit-width constants (used as sc_bv<N> template arguments)
 // ─────────────────────────────────────────────────────────────────────────────
-static constexpr int CHI_REQ_FLIT_W = req_f::TOTAL_W;  // 113 (default config)
-static constexpr int CHI_RSP_FLIT_W = rsp_f::TOTAL_W;  //  56
-static constexpr int CHI_DAT_FLIT_W = dat_f::TOTAL_W;  // 637
-static constexpr int CHI_SNP_FLIT_W = snp_f::TOTAL_W;  //  85
+static constexpr int CHI_REQ_FLIT_W = req_f::TOTAL_W;  // 117 (default config)
+static constexpr int CHI_RSP_FLIT_W = rsp_f::TOTAL_W;  //  64
+static constexpr int CHI_DAT_FLIT_W = dat_f::TOTAL_W;  // 645
+static constexpr int CHI_SNP_FLIT_W = snp_f::TOTAL_W;  // 102
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REQ flit ↔ chi_ctrl_extension (inbound: DUT RN-F → HN-F proxy)
@@ -370,18 +380,18 @@ inline void pack_snp(const chi::chi_snp_extension& e,
 {
     using F = snp_f;
     f = 0;
-    bf_set(f, F::QOS_LO,          F::QOS_W,     e.cmn.get_qos());
-    bf_set(f, F::SRCID_LO,        F::SRCID_W,   e.cmn.get_src_id());
-    bf_set(f, F::TXNID_LO,        F::TXNID_W,   e.cmn.get_txn_id());
-    bf_set(f, F::FWDNID_LO,       F::FWDNID_W,  e.req.get_fwd_n_id());
-    bf_set(f, F::FWDTXNID_LO,     F::FWDTXNID_W,e.req.get_fwd_txn_id());
-    bf_set(f, F::OPCODE_LO,       F::OPCODE_W,   static_cast<uint64_t>(e.req.get_opcode()));
+    bf_set(f, F::QOS_LO,          F::QOS_W,      e.cmn.get_qos());
+    bf_set(f, F::SRCID_LO,        F::SRCID_W,    e.cmn.get_src_id());
+    bf_set(f, F::TXNID_LO,        F::TXNID_W,    e.cmn.get_txn_id());
+    bf_set(f, F::FWDNID_LO,       F::FWDNID_W,   e.req.get_fwd_n_id());
+    bf_set(f, F::FWDTXNID_LO,     F::FWDTXNID_W, e.req.get_fwd_txn_id());
+    bf_set(f, F::OPCODE_LO,       F::OPCODE_W,    static_cast<uint64_t>(e.req.get_opcode()));
+    bf_set(f, F::ADDR_LO,         F::ADDR_W,      addr >> 3);
     bf_setb(f, F::NS_LO,          e.req.is_non_secure());
     bf_setb(f, F::DONOTGOTOSD_LO, e.req.is_do_not_goto_sd());
     bf_setb(f, F::RETTOSRC_LO,    e.req.is_ret_to_src());
-    bf_setb(f, F::DONOTDATAPULL_LO, e.req.is_do_not_data_pull());
-    bf_set(f, F::ADDR_LO,         F::ADDR_W,     addr >> 3);  // drop 3 LSBs
     bf_setb(f, F::TRACETAG_LO,    e.req.is_trace_tag());
+    bf_set(f, F::TGTID_LO,        F::TGTID_W,     0u); // single RN-F; routing handled by TB
 }
 
 } // namespace chi_flit

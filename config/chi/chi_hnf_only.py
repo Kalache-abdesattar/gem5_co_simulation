@@ -83,6 +83,10 @@ if not getattr(args, 'topology', None):    args.topology = 'Pt2Pt'
 if not getattr(args, 'network', None):     args.network = 'simple'
 if not getattr(args, 'cacheline_size', None): args.cacheline_size = 64
 args.num_cpus = 0    # no CPUs
+# Use SimpleMemory for DRAM so we can pre-load firmware via image_file.
+# DDR timing is irrelevant for CHI protocol correctness testing.
+if not getattr(args, 'mem_type', None) or args.mem_type == 'DDR3_1600_8x8':
+    args.mem_type = 'SimpleMemory'
 # Use 64-byte data channel so each cache line is sent in a single DAT beat.
 # Default is 32 bytes (2 beats per 64-byte line), which complicates co-sim.
 # Override via the chi_config mechanism.
@@ -99,17 +103,58 @@ for attr, val in [('l1d_size','32kB'),('l1i_size','32kB'),('l2_size','256kB'),
     if not hasattr(args, attr) or getattr(args, attr) is None:
         setattr(args, attr, val)
 
+import struct as _struct
+import os as _os
+
+# CVA6 memory layout:
+#   0x80000000 — DRAM base (CVA6 bootrom jumps here)
+#   0xFFF1010000 — boot ROM (CVA6 reset vector)
+_DRAM_BASE    = 0x80000000
+_BOOTROM_BASE = 0xFFF1010000
+_BOOTROM_HEX  = '/home/dmk/fedora/work/chi-rnf/sw/bootrom.hex'
+_BOOTROM_BIN  = _os.path.join(_os.path.dirname(__file__), '../../chi_vip/bootrom.bin')
+
+# Convert hex → little-endian binary (re-generate if hex is newer)
+if (not _os.path.exists(_BOOTROM_BIN) or
+        _os.path.getmtime(_BOOTROM_HEX) > _os.path.getmtime(_BOOTROM_BIN)):
+    with open(_BOOTROM_HEX) as _f:
+        _words = [int(_l.strip(), 16) for _l in _f if _l.strip()]
+    _data = _struct.pack(f'<{len(_words)}I', *_words)
+    with open(_BOOTROM_BIN, 'wb') as _f:
+        _f.write(_data)
+    print(f"[chi_hnf_only] Generated bootrom binary: {len(_data)} bytes → {_BOOTROM_BIN}")
+
+_bootrom_size = _os.path.getsize(_BOOTROM_BIN)
+_BOOTROM_BIN  = _os.path.abspath(_BOOTROM_BIN)
+
 system = System()
 system.clk_domain    = SrcClockDomain(clock='3GHz', voltage_domain=VoltageDomain())
 system.mem_mode      = 'timing'
-system.mem_ranges    = [AddrRange('512MB')]
+system.mem_ranges    = [AddrRange(start=_DRAM_BASE, size='512MB')]
 system.cache_line_size = args.cacheline_size
+
+# Boot ROM — served by CHI_SNF_BootMem via SimpleMemory
+system.bootmem = SimpleMemory(
+    image_file=_BOOTROM_BIN,
+    range=AddrRange(start=_BOOTROM_BASE, size=_bootrom_size),
+)
+print(f"[chi_hnf_only] Boot ROM: {_bootrom_size} bytes @ 0x{_BOOTROM_BASE:x} ({_BOOTROM_BIN})")
 
 system._vip_shm_names = [args.shm_name]
 print(f"[chi_hnf_only] VIPController shm='{args.shm_name}'")
 
 # Pass cpus=[] explicitly — no CPUs, only VIPController as requestor
-Ruby.create_system(args, False, system, cpus=[])
+Ruby.create_system(args, False, system, bootmem=system.bootmem, cpus=[])
+
+# Pre-load DRAM firmware so CVA6 can execute after bootrom jumps to 0x80000000.
+# The ELF segments (code at 0x80000000, data at 0x8000d000) are pre-extracted
+# into a raw flat binary.  SimpleMemory.image_file loads it at range start.
+_DRAM_FW_BIN = _os.path.join(_os.path.dirname(__file__),
+                              '../../chi_vip/dram_fw.bin')
+if _os.path.exists(_DRAM_FW_BIN) and hasattr(system, 'mem_ctrls') and system.mem_ctrls:
+    system.mem_ctrls[0].image_file = _os.path.abspath(_DRAM_FW_BIN)
+    print(f"[chi_hnf_only] DRAM firmware: {_os.path.getsize(_DRAM_FW_BIN)} bytes"
+          f" @ 0x{_DRAM_BASE:x} ({_DRAM_FW_BIN})")
 
 system.ruby.clk_domain = SrcClockDomain(
     clock='3GHz', voltage_domain=system.clk_domain.voltage_domain)

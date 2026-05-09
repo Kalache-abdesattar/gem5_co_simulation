@@ -42,7 +42,8 @@ struct ChiIpcReq {
     // ── CHI Issue D fields (offsets 0–23) ──────────────────────────────────
     uint64_t addr;          // cache-line address
     uint8_t  opcode;        // chi::req_optype_e integer
-    uint8_t  txn_id;
+    uint8_t  _pad0;
+    uint16_t txn_id;
     uint16_t src_id;
     uint16_t tgt_id;
     uint8_t  qos;
@@ -66,7 +67,7 @@ struct ChiIpcReq {
     uint8_t  p_group_id;    // [E]   Persistence Group ID [7:0]
     uint8_t  stash_group_id;// [E]   Stash Group ID [7:0]
     uint8_t  tag_group_id;  // [E]   Tag Group ID [7:0]
-    uint8_t  _pad[4];       // explicit padding to sizeof=40
+    uint8_t  _pad[2];       // explicit padding to sizeof=40
 };
 static_assert(sizeof(ChiIpcReq) == 40, "ChiIpcReq layout changed — update protocol version");
 
@@ -74,7 +75,8 @@ static_assert(sizeof(ChiIpcReq) == 40, "ChiIpcReq layout changed — update prot
 struct ChiIpcRsp {
     // ── CHI Issue D fields (offsets 0–13) ──────────────────────────────────
     uint8_t  opcode;        // chi::rsp_optype_e integer
-    uint8_t  txn_id;
+    uint8_t  _pad0;
+    uint16_t txn_id;
     uint16_t src_id;
     uint16_t tgt_id;
     uint8_t  qos;
@@ -84,11 +86,11 @@ struct ChiIpcRsp {
     uint16_t db_id;
     uint8_t  fwd_state;     // 3-bit FwdState (forwarding snoops)
     uint8_t  data_pull;     // 1 = DataPull request included
-    // ── CHI Issue E / E.b fields (offsets 14–16) — scaffolding, always 0 ──
+    // ── CHI Issue E / E.b fields (offsets 16–18) — scaffolding, always 0 ──
     uint8_t  tag_op;        // [E]   TagOp[1:0]: echoed tag operation
     uint8_t  trace_tag;     // [E.b] TraceTag: propagated trace marker
     uint8_t  c_busy;        // [E.b] Component Busy [2:0]
-    uint8_t  _pad[3];       // explicit padding to sizeof=20
+    uint8_t  _pad[1];       // explicit padding to sizeof=20
 };
 static_assert(sizeof(ChiIpcRsp) == 20, "ChiIpcRsp layout changed — update protocol version");
 
@@ -97,7 +99,8 @@ struct ChiIpcDat {
     // ── CHI Issue D fields (offsets 0–24) ──────────────────────────────────
     uint64_t addr;
     uint8_t  opcode;        // chi::dat_optype_e integer
-    uint8_t  txn_id;
+    uint8_t  _pad0;
+    uint16_t txn_id;
     uint16_t src_id;
     uint16_t tgt_id;
     uint16_t home_n_id;
@@ -108,13 +111,12 @@ struct ChiIpcDat {
     uint8_t  data_id;
     uint16_t data_len;      // number of valid data bytes (0 = no data)
     uint8_t  cc_id;         // 2-bit Critical Chunk ID
-    // ── CHI Issue E / E.b fields (offsets 25–33) — scaffolding, always 0 ──
+    // ── CHI Issue E / E.b fields (offsets 27–35) — scaffolding, always 0 ──
     uint8_t  tag_op;        // [E]   TagOp[1:0]: tag operation for this data flit
     uint8_t  trace_tag;     // [E.b] TraceTag: propagated trace marker
     uint8_t  c_busy;        // [E.b] Component Busy [2:0]
     uint8_t  data_source;   // [E]   DataSource[3:0]: 0=normal 1=prefetch 2=DRAM …
     uint8_t  tu;            // [E]   Tag Update mask [3:0]: 1 bit per 16B granule
-    uint8_t  _pad[2];       // explicit padding to align uint16_t fields at offset 32
     uint16_t mecid;         // [E.b] Memory Encryption Context ID [15:0]
     uint16_t tag;           // [E]   Memory tags: 4 bits per 16B granule (16 bits for 64B line)
     // ── Payload (data[] aligned at offset 36) ──────────────────────────────
@@ -128,10 +130,11 @@ struct ChiIpcSnp {
     // ── CHI Issue D fields (offsets 0–19) ──────────────────────────────────
     uint64_t addr;
     uint8_t  opcode;        // chi::snp_optype_e integer
-    uint8_t  txn_id;
+    uint8_t  _pad0;
+    uint16_t txn_id;
     uint16_t src_id;
     uint16_t fwd_n_id;
-    uint8_t  fwd_txn_id;
+    uint16_t fwd_txn_id;
     uint8_t  qos;
     uint8_t  ns;
     uint8_t  ret_to_src;
@@ -141,9 +144,8 @@ struct ChiIpcSnp {
     uint8_t  tag_op;        // [E]   TagOp[1:0]: tag operation for snoop with tag transfer
     uint8_t  trace_tag;     // [E.b] TraceTag: propagated trace marker
     uint8_t  c_busy;        // [E.b] Component Busy [2:0]
-    uint8_t  _pad[1];       // explicit padding to align mpam at offset 24
     uint16_t mpam;          // [E]   MPAM[10:0]: forwarded partitioning context
-    uint8_t  _pad2[6];      // explicit padding to sizeof=32
+    uint8_t  _pad2[4];      // explicit padding to sizeof=32
 };
 static_assert(sizeof(ChiIpcSnp) == 32, "ChiIpcSnp layout changed — update protocol version");
 

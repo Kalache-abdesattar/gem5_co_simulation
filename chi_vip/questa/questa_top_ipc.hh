@@ -117,10 +117,26 @@ SC_MODULE(questa_top_ipc)
     int dat_lcrd_{0};
     int snp_lcrd_{0};
 
+    // Cycles to suppress rxdat_flitv after a send: dat_rx_sm (always_ff) needs
+    // 3 SC cycles to return to RX_IDLE (latch + FLIT0 + FLIT1), so back-to-back
+    // sends would drop the second flit because the SM is in a non-IDLE state.
+    int dat_tx_cooldown_{0};
+
     // Init-phase: pulse TXREQ/TXRSP/TXDATLCRDV for CHI_INIT_LCRD cycles
     int req_lcrd_init_{CHI_INIT_LCRD};
     int rsp_lcrd_init_{CHI_INIT_LCRD};
     int dat_lcrd_init_{CHI_INIT_LCRD};
+
+    // SNP credits flow from CVA6 (RN-F) to questa (HN-F).  If CVA6 does not
+    // assert hnf_txsnplcrdv during link init, snp_lcrd_ stays 0 and snoops
+    // can never be sent.  Pre-load snp_lcrd_ to CHI_INIT_LCRD on the first
+    // active cycle so snoops can proceed without waiting for CVA6 credits.
+    bool snp_lcrd_preloaded_{false};
+
+    // The ICN spends one credit per 256-bit RTL beat forwarded to hnf_rxdatflitv.
+    // Each assembled 512-bit IPC DAT consumed two beats, so we must return two
+    // credits.  pending_extra_dat_crd_ holds credits deferred to the next cycle.
+    int pending_extra_dat_crd_{0};
 
     // Convert IPC structs → flit bits
     RspFlit ipc_to_rsp_flit(const chi_ipc::ChiIpcRsp& m);

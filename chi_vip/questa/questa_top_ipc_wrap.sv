@@ -40,7 +40,7 @@
 //     clk : in std_logic; rstn : in std_logic;
 //     txreq_flitv/pend/flit(112:0)/lcrdv; txrsp_flitv/pend/flit(55:0)/lcrdv;
 //     txdat_flitv/pend/flit(636:0)/lcrdv; rxrsp_flitv/pend/flit(55:0)/lcrdv;
-//     rxdat_flitv/pend/flit(636:0)/lcrdv; rxsnp_flitv/pend/flit(84:0)/lcrdv);
+//     rxdat_flitv/pend/flit(636:0)/lcrdv; rxsnp_flitv/pend/flit(101:0)/lcrdv);
 
 `timescale 1ps/1ps
 
@@ -56,11 +56,11 @@ import "DPI-C" function void questa_get_rxdat_data(
 
 package chi_ipc_pkg;
     // Flit widths — must match chi_flit_cfg.hh
-    // NODEID_W=7  TXNID_W=8  ADDR_W=44  DATA_W_BYTES=64
-    localparam int CHI_REQ_FLIT_W = 113;
-    localparam int CHI_RSP_FLIT_W =  56;
-    localparam int CHI_DAT_FLIT_W = 637;
-    localparam int CHI_SNP_FLIT_W =  85;
+    // NODEID_W=7  TXNID_W=12  ADDR_W=44  DATA_W_BYTES=64
+    localparam int CHI_REQ_FLIT_W = 117;
+    localparam int CHI_RSP_FLIT_W =  64;
+    localparam int CHI_DAT_FLIT_W = 645;
+    localparam int CHI_SNP_FLIT_W = 102;
 endpackage : chi_ipc_pkg
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -116,11 +116,11 @@ module questa_top_ipc_wrap
 );
 
     // ── Internal: SC module drives rxdat_flit_sc; we reconstruct rxdat_flit ──
-    // Questa's SC→SV bridge for sc_lv<637> only propagates bits 0-31 to SV.
-    // DATA (bits 636:125) and BE (bits 124:61) are transferred via the DPI
+    // Questa's SC→SV bridge for sc_lv<645> only propagates bits 0-31 to SV.
+    // DATA (bits 644:133) and BE (bits 132:69) are transferred via the DPI
     // bypass function questa_get_rxdat_data() exported from systemc.so.
-    // The always block reassembles the full 637-bit flit from:
-    //   - rxdat_flit_sc[60:0]  : header (bits 60:0), propagated correctly
+    // The always block reassembles the full 645-bit flit from:
+    //   - rxdat_flit_sc[68:0]  : header (bits 68:0), propagated correctly
     //   - be_bits[63:0]        : BE field (64 bits), via DPI
     //   - data_bits[511:0]     : DATA field (512 bits), via DPI
     //
@@ -135,7 +135,7 @@ module questa_top_ipc_wrap
 
     always @(rxdat_flit_sc, rxdat_flitv) begin
         questa_get_rxdat_data(rxdat_dpi_data, rxdat_dpi_be);
-        rxdat_flit = {rxdat_dpi_data, rxdat_dpi_be, rxdat_flit_sc[60:0]};
+        rxdat_flit = {rxdat_dpi_data, rxdat_dpi_be, rxdat_flit_sc[68:0]};
     end
 
     questa_top_ipc_vsim u_chi_ipc (

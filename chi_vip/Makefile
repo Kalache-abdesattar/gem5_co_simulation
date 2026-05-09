@@ -364,7 +364,43 @@ questa_build_cosim: $(QUESTA_BUILD)/work/systemc_sv.so $(QUESTA_BUILD)/work/tb_g
 	@echo "    vsim -c -lib questa_build/work questa_top_ipc_wrap tb_gem5_cosim \\"
 	@echo "        -do 'run -all; quit -f'"
 
-.PHONY: all run clean cosim-help questa_build questa_build_sv questa_build_cosim questa_ld_patch questa_build_restore_ld
+# ── cva6-RNF SC rebuild ───────────────────────────────────────────────────────
+# Rebuilds the SC co-sim library in the cva6-RNF work directory.
+# Must be re-run whenever chi_vip SC sources change or work/ is cleaned.
+# RNF_WORK must point to the cva6-RNF Questa work library directory.
+RNF_WORK ?= /home/dmk/fedora/work/chi-rnf/cva6-RNF/work
+RNF_OBJDIR = $(RNF_WORK)/_sc/linux_x86_64_gcc-10.3.0
+RNF_SCCOM  = PATH=$(QUESTA)/bin:$$PATH sccom -suppress sccom-94 -O2 -std=c++17 \
+             -work $(RNF_WORK) \
+             -I$(CURDIR)/questa -I$(CURDIR)/ipc -I$(LIBSOC)/include
+
+rnf_build_sc:
+	# Compile SC sources into cva6-RNF work library
+	$(RNF_SCCOM) $(CURDIR)/ipc/chi_ipc.cc
+	$(RNF_SCCOM) $(CURDIR)/questa/questa_top_ipc.cc
+	$(RNF_SCCOM) $(CURDIR)/questa/questa_top_ipc_vsim.cc
+	$(RNF_SCCOM) $(CURDIR)/questa/questa_sc_main.cc
+	# Remove any conflicting standalone-sc_main .o files
+	rm -f $(RNF_OBJDIR)/questa_cosim_top_ipc.o \
+	      $(RNF_OBJDIR)/questa_cosim_top_ipc.dbs \
+	      $(RNF_OBJDIR)/questa_cosim_top_ipc.o.version \
+	      $(RNF_OBJDIR)/questa_cosim_top.o \
+	      $(RNF_OBJDIR)/questa_cosim_top.dbs \
+	      $(RNF_OBJDIR)/questa_cosim_top.o.version \
+	      $(RNF_OBJDIR)/questa_top.o \
+	      $(RNF_OBJDIR)/questa_top.dbs \
+	      $(RNF_OBJDIR)/questa_top.o.version
+	# Link with sccom to embed SystemC version marker (required by vopt-10515)
+	cd $(dir $(RNF_WORK)) && PATH=$(QUESTA)/bin:$$PATH sccom -suppress sccom-94 -work $(RNF_WORK) -link
+	# Deploy to work/systemc.so and stage system libstdc++
+	cp $(RNF_OBJDIR)/systemc.so $(RNF_WORK)/systemc.so
+	cp /usr/lib64/libstdc++.so.6 $(RNF_OBJDIR)/
+	@echo ""
+	@echo "━━━ rnf_build_sc complete ━━━"
+	@echo "  $(RNF_WORK)/systemc.so updated"
+	@echo "  Run vsim with: LD_PRELOAD=/usr/lib64/libstdc++.so.6"
+
+.PHONY: all run clean cosim-help questa_build questa_build_sv questa_build_cosim questa_ld_patch questa_build_restore_ld rnf_build_sc
 
 # ── Co-simulation build help ──────────────────────────────────────────────────
 cosim-help:

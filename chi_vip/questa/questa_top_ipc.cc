@@ -113,6 +113,9 @@ void questa_top_ipc::clk_posedge()
         memset(s_rxdat_data, 0, sizeof(s_rxdat_data));
         s_rxdat_be = 0;
         rsp_lcrd_ = dat_lcrd_ = snp_lcrd_ = 0;
+        dat_tx_cooldown_ = 0;
+        pending_extra_dat_crd_ = 0;
+        snp_lcrd_preloaded_ = false;
         req_lcrd_init_ = rsp_lcrd_init_ = dat_lcrd_init_ = CHI_INIT_LCRD;
         questa_ps_ = 0;
         return;
@@ -122,26 +125,52 @@ void questa_top_ipc::clk_posedge()
     shm->questa_grant_ps.store(questa_ps_,
                                 std::memory_order_release);
 
+    if (dat_tx_cooldown_ > 0) --dat_tx_cooldown_;
+
+    // SNP credits come from CVA6 (RN-F); pre-load on first active cycle in case
+    // CVA6 does not pulse hnf_txsnplcrdv during link init.
+    if (!snp_lcrd_preloaded_) {
+        snp_lcrd_ += CHI_INIT_LCRD;
+        snp_lcrd_preloaded_ = true;
+        fprintf(stderr, "[ipc] SNP credit pre-load: snp_lcrd_=%u @%lupc\n",
+                snp_lcrd_, (unsigned long)questa_ps_);
+    }
+
     // ── Phase 1: init L-credits ───────────────────────────────────────────────
     bool send_req_crd = (req_lcrd_init_ > 0);
     bool send_rsp_crd = (rsp_lcrd_init_ > 0);
-    bool send_dat_crd = (dat_lcrd_init_ > 0);
+    bool send_dat_crd = (dat_lcrd_init_ > 0) || (pending_extra_dat_crd_ > 0);
     if (req_lcrd_init_ > 0) --req_lcrd_init_;
     if (rsp_lcrd_init_ > 0) --rsp_lcrd_init_;
     if (dat_lcrd_init_ > 0) --dat_lcrd_init_;
+    if (pending_extra_dat_crd_ > 0) --pending_extra_dat_crd_;
 
     // ── Phase 2: consume DUT-granted credits ──────────────────────────────────
     if (rxrsp_lcrdv.read()) ++rsp_lcrd_;
-    if (rxdat_lcrdv.read()) ++dat_lcrd_;
-    if (rxsnp_lcrdv.read()) ++snp_lcrd_;
+    if (rxdat_lcrdv.read()) {
+        ++dat_lcrd_;
+        fprintf(stderr, "[ipc] Phase2 rxdat_lcrdv=1 → dat_lcrd_=%u @%lupc\n",
+                dat_lcrd_, (unsigned long)questa_ps_);
+    }
+    if (rxsnp_lcrdv.read()) {
+        ++snp_lcrd_;
+        fprintf(stderr, "[ipc] Phase2 rxsnp_lcrdv=1 → snp_lcrd_=%u @%lupc\n",
+                snp_lcrd_, (unsigned long)questa_ps_);
+    }
 
     // ── Phase 3: sample DUT TX flits → push into q2g ring buffers ───────────
 
     if (txreq_flitv.read()) {
         chi_ipc::ChiIpcReq msg = req_flit_to_ipc(txreq_flit.read());
-        if (!shm->q2g_req.push(msg))
-            fprintf(stderr, "[questa_top_ipc] q2g_req full — dropped REQ!\n");
-        send_req_crd = true;
+        if (msg.opcode == 0) {
+            // ReqLCrdReturn (opcode 0x00): credit-return flit, not a real
+            // request. Do NOT push to ring buffer or return a credit (that
+            // would inflate the credit count).
+        } else {
+            if (!shm->q2g_req.push(msg))
+                fprintf(stderr, "[questa_top_ipc] q2g_req full — dropped REQ!\n");
+            send_req_crd = true;
+        }
     }
 
     if (txrsp_flitv.read()) {
@@ -156,6 +185,11 @@ void questa_top_ipc::clk_posedge()
         if (!shm->q2g_dat.push(msg))
             fprintf(stderr, "[questa_top_ipc] q2g_dat full — dropped DAT!\n");
         send_dat_crd = true;
+        // NCBWrData (opcode 0x3) is assembled from a single 256-bit RTL beat
+        // so the ICN spent only one credit.  All other DAT types use two beats;
+        // return the second credit next cycle.
+        if (msg.opcode != 0x3)
+            ++pending_extra_dat_crd_;
     }
 
     txreq_lcrdv.write(send_req_crd);
@@ -170,13 +204,22 @@ void questa_top_ipc::clk_posedge()
     }
     {
         chi_ipc::ChiIpcDat dat;
-        while (shm->g2q_dat.pop(dat))
+        while (shm->g2q_dat.pop(dat)) {
+            fprintf(stderr, "[ipc] Phase4 g2q_dat pop: txn=%u tgt=%u op=%u dat_lcrd_=%u @%lupc\n",
+                    dat.txn_id, dat.tgt_id, dat.opcode, dat_lcrd_,
+                    (unsigned long)questa_ps_);
             dat_out_q_.push(ipc_to_dat_flit(dat));
+        }
     }
     {
         chi_ipc::ChiIpcSnp snp;
-        while (shm->g2q_snp.pop(snp))
+        while (shm->g2q_snp.pop(snp)) {
+            fprintf(stderr, "[ipc] Phase4 g2q_snp pop: txn=%u src=%u op=%u addr=0x%lx snp_lcrd_=%u @%lupc\n",
+                    snp.txn_id, snp.src_id, snp.opcode,
+                    (unsigned long)snp.addr, snp_lcrd_,
+                    (unsigned long)questa_ps_);
             snp_out_q_.push(ipc_to_snp_flit(snp));
+        }
     }
 
     // ── Phase 5: drive outbound RX flits to DUT ──────────────────────────────
@@ -198,7 +241,11 @@ void questa_top_ipc::clk_posedge()
     // DPI bypass function questa_get_rxdat_data(), which the SV wrapper calls
     // from its always block when rxdat_flit_sc changes.  The globals must be
     // populated BEFORE rxdat_flit.write() triggers that always block.
-    if (!dat_out_q_.empty() && dat_lcrd_ > 0) {
+    if (!dat_out_q_.empty() && dat_lcrd_ == 0) {
+        fprintf(stderr, "[ipc] Phase5 DAT STALLED: dat_out_q_.size=%zu dat_lcrd_=0 @%lupc\n",
+                dat_out_q_.size(), (unsigned long)questa_ps_);
+    }
+    if (!dat_out_q_.empty() && dat_lcrd_ > 0 && dat_tx_cooldown_ == 0) {
         const DatFlit& nxt = dat_out_q_.front();
         using F2 = chi_flit::dat_f;
         // Populate DPI globals (bypasses SC→SV bridge truncation of sc_lv<637>).
@@ -211,20 +258,38 @@ void questa_top_ipc::clk_posedge()
             s_rxdat_data[i] = static_cast<uint8_t>(
                 nxt.range(F2::DATA_LO + i*8 + 7, F2::DATA_LO + i*8).to_uint());
         }
+        fprintf(stderr, "[ipc] Phase5 rxdat_flitv=1 dat_lcrd_ %u→%u @%lupc\n",
+                dat_lcrd_, dat_lcrd_ - 1, (unsigned long)questa_ps_);
         rxdat_flitv.write(true);
         rxdat_flit.write(nxt);
         dat_out_q_.pop();
         --dat_lcrd_;
+        // dat_rx_sm (always_ff) needs 3 SC cycles to drain: latch + FLIT0 + FLIT1.
+        dat_tx_cooldown_ = 3;
         rxdat_flitpend.write(!dat_out_q_.empty() && dat_lcrd_ > 0);
     } else {
         rxdat_flitv.write(false);
-        rxdat_flitpend.write(!dat_out_q_.empty() && dat_lcrd_ > 0);
+        rxdat_flitpend.write(!dat_out_q_.empty() && dat_lcrd_ > 0 && dat_tx_cooldown_ == 0);
     }
 
     // RXSNP
+    if (!snp_out_q_.empty() && snp_lcrd_ == 0) {
+        fprintf(stderr, "[ipc] Phase5 SNP STALLED: snp_out_q_.size=%zu snp_lcrd_=0 @%lupc\n",
+                snp_out_q_.size(), (unsigned long)questa_ps_);
+    }
     if (!snp_out_q_.empty() && snp_lcrd_ > 0) {
+        using F = chi_flit::snp_f;
+        const SnpFlit& nxt = snp_out_q_.front();
+        fprintf(stderr,
+            "[ipc] Phase5 rxsnp_flitv=1 snp_lcrd_ %u→%u"
+            " addr=0x%lx op=%u txn=%u @%lupc\n",
+            snp_lcrd_, snp_lcrd_ - 1,
+            (unsigned long)chi_flit::bf_get(nxt, F::ADDR_LO, F::ADDR_W),
+            (unsigned)chi_flit::bf_get(nxt, F::OPCODE_LO, F::OPCODE_W),
+            (unsigned)chi_flit::bf_get(nxt, F::TXNID_LO,  F::TXNID_W),
+            (unsigned long)questa_ps_);
         rxsnp_flitv.write(true);
-        rxsnp_flit.write(snp_out_q_.front());
+        rxsnp_flit.write(nxt);
         snp_out_q_.pop();
         --snp_lcrd_;
         rxsnp_flitpend.write(!snp_out_q_.empty() && snp_lcrd_ > 0);
@@ -288,13 +353,54 @@ DatFlit questa_top_ipc::ipc_to_dat_flit(const chi_ipc::ChiIpcDat& m)
     return f;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SNP opcode translation: gem5 CHI-B/C IPC values → RTL CHI-E (chie_defines.v)
+//
+// gem5's VIPController::gem5ToSccSnp() was written against an older CHI issue
+// whose SNP opcode table differs from CHI Issue E used by the RTL.  This table
+// corrects every snoop opcode before the flit is packed and driven to the DUT.
+//
+// gem5-IPC  gem5 name              CHI-E RTL  RTL name
+// ────────  ─────────────────────  ─────────  ─────────────────────
+//   0x03    SnpOnce                  0x03      CHIE_SNPONCE          (same)
+//   0x04    SnpShared                0x01      CHIE_SNPSHARED
+//   0x07    SnpUnique                0x07      CHIE_SNPUNIQUE        (same)
+//   0x08    SnpCleanInvalid          0x09      CHIE_SNPCLEANINVALID
+//   0x0B    SnpOnceFwd               0x13      CHIE_SNPONCEFWD
+//   0x0C    SnpSharedFwd             0x11      CHIE_SNPSHAREDFWD
+//   0x0D    SnpUniqueFwd             0x17      CHIE_SNPUNIQUEFWD
+//   0x0E    SnpNotSharedDirtyFwd     0x14      CHIE_SNPNOTSHAREDDIRTYFWD
+//   0x14    SnpDvmOp (all variants)  0x0D      CHIE_SNPDVMOP
+// ─────────────────────────────────────────────────────────────────────────────
+static uint8_t translate_snp_opcode(uint8_t gem5_opc)
+{
+    switch (gem5_opc) {
+    case 0x03: return 0x03;  // SnpOnce              → CHIE_SNPONCE          (unchanged)
+    case 0x04: return 0x01;  // SnpShared            → CHIE_SNPSHARED
+    case 0x07: return 0x07;  // SnpUnique            → CHIE_SNPUNIQUE        (unchanged)
+    case 0x08: return 0x09;  // SnpCleanInvalid      → CHIE_SNPCLEANINVALID
+    case 0x0B: return 0x13;  // SnpOnceFwd           → CHIE_SNPONCEFWD
+    case 0x0C: return 0x11;  // SnpSharedFwd         → CHIE_SNPSHAREDFWD
+    case 0x0D: return 0x17;  // SnpUniqueFwd         → CHIE_SNPUNIQUEFWD
+    case 0x0E: return 0x14;  // SnpNotSharedDirtyFwd → CHIE_SNPNOTSHAREDDIRTYFWD
+    case 0x14: return 0x0D;  // SnpDvmOp (all)       → CHIE_SNPDVMOP
+    default:
+        fprintf(stderr,
+            "[ipc] translate_snp_opcode: unknown gem5 SNP opcode 0x%02x"
+            " — forwarding as-is (likely RTL decode error)\n", gem5_opc);
+        return gem5_opc;
+    }
+}
+
 SnpFlit questa_top_ipc::ipc_to_snp_flit(const chi_ipc::ChiIpcSnp& m)
 {
+    const uint8_t rtl_opc = translate_snp_opcode(m.opcode);
+
     chi::chi_snp_extension e;
     e.cmn.set_qos(m.qos);
     e.cmn.set_src_id(m.src_id);
     e.cmn.set_txn_id(m.txn_id);
-    e.req.set_opcode(static_cast<chi::snp_optype_e>(m.opcode));
+    e.req.set_opcode(static_cast<chi::snp_optype_e>(rtl_opc));
     e.req.set_fwd_n_id(m.fwd_n_id);
     e.req.set_fwd_txn_id(m.fwd_txn_id);
     e.req.set_non_secure(static_cast<bool>(m.ns));
@@ -303,6 +409,26 @@ SnpFlit questa_top_ipc::ipc_to_snp_flit(const chi_ipc::ChiIpcSnp& m)
     e.req.set_do_not_data_pull(static_cast<bool>(m.do_not_data_pull));
     SnpFlit f;
     pack_snp(e, m.addr, f);
+
+    using F = chi_flit::snp_f;
+    uint64_t f_addr = chi_flit::bf_get(f, F::ADDR_LO, F::ADDR_W);
+    fprintf(stderr,
+        "[ipc] snp_flit pack:"
+        " txn=%u src=%u gem5_op=0x%02x rtl_op=0x%02x"
+        " ipc_addr=0x%lx flit_addr=0x%lx (bits[%d:%d])"
+        " ns=%u rettosrc=%u donotgotosd=%u"
+        " fwdnid=%u fwdtxnid=%u"
+        " flit_hex[101:64]=0x%08lx [63:0]=0x%016lx\n",
+        m.txn_id, m.src_id, m.opcode, rtl_opc,
+        (unsigned long)m.addr, (unsigned long)f_addr,
+        F::ADDR_LO + F::ADDR_W - 1, F::ADDR_LO,
+        (unsigned)chi_flit::bf_getb(f, F::NS_LO),
+        (unsigned)chi_flit::bf_getb(f, F::RETTOSRC_LO),
+        (unsigned)chi_flit::bf_getb(f, F::DONOTGOTOSD_LO),
+        m.fwd_n_id, m.fwd_txn_id,
+        (unsigned long)f.range(101, 64).to_uint64(),
+        (unsigned long)f.range( 63,  0).to_uint64());
+
     return f;
 }
 
@@ -316,7 +442,7 @@ chi_ipc::ChiIpcReq questa_top_ipc::req_flit_to_ipc(const ReqFlit& f)
     chi_ipc::ChiIpcReq m{};
     m.addr        = static_cast<uint64_t>(bf_get(f, F::ADDR_LO, F::ADDR_W));
     m.opcode      = static_cast<uint8_t>( bf_get(f, F::OPCODE_LO, F::OPCODE_W));
-    m.txn_id      = static_cast<uint8_t>( bf_get(f, F::TXNID_LO, F::TXNID_W));
+    m.txn_id      = static_cast<uint16_t>(bf_get(f, F::TXNID_LO, F::TXNID_W));
     m.src_id      = static_cast<uint16_t>(bf_get(f, F::SRCID_LO, F::SRCID_W));
     m.tgt_id      = static_cast<uint16_t>(bf_get(f, F::TGTID_LO, F::TGTID_W));
     m.qos         = static_cast<uint8_t>( bf_get(f, F::QOS_LO, F::QOS_W));
@@ -338,7 +464,7 @@ chi_ipc::ChiIpcRsp questa_top_ipc::rsp_flit_to_ipc(const RspFlit& f)
     using F = chi_flit::rsp_f;
     chi_ipc::ChiIpcRsp m{};
     m.opcode    = static_cast<uint8_t>( bf_get(f, F::OPCODE_LO, F::OPCODE_W));
-    m.txn_id    = static_cast<uint8_t>( bf_get(f, F::TXNID_LO, F::TXNID_W));
+    m.txn_id    = static_cast<uint16_t>(bf_get(f, F::TXNID_LO, F::TXNID_W));
     m.src_id    = static_cast<uint16_t>(bf_get(f, F::SRCID_LO, F::SRCID_W));
     m.tgt_id    = static_cast<uint16_t>(bf_get(f, F::TGTID_LO, F::TGTID_W));
     m.qos       = static_cast<uint8_t>( bf_get(f, F::QOS_LO, F::QOS_W));
@@ -359,7 +485,7 @@ chi_ipc::ChiIpcDat questa_top_ipc::dat_flit_to_ipc(const DatFlit& f)
     // outstanding TBE that matches the TxnID.  Set addr=0 here.
     m.addr      = 0;
     m.opcode    = static_cast<uint8_t>( bf_get(f, F::OPCODE_LO, F::OPCODE_W));
-    m.txn_id    = static_cast<uint8_t>( bf_get(f, F::TXNID_LO, F::TXNID_W));
+    m.txn_id    = static_cast<uint16_t>(bf_get(f, F::TXNID_LO, F::TXNID_W));
     m.src_id    = static_cast<uint16_t>(bf_get(f, F::SRCID_LO, F::SRCID_W));
     m.tgt_id    = static_cast<uint16_t>(bf_get(f, F::TGTID_LO, F::TGTID_W));
     m.home_n_id = static_cast<uint16_t>(bf_get(f, F::HOMEID_LO, F::HOMEID_W));
