@@ -4,3 +4,6 @@
 [submodule "ext/mcpat"]
 	path = ext/mcpat
 	url = https://github.com/HewlettPackard/mcpat.git
+[submodule "sw/synchrobench"]
+	path = sw/synchrobench
+	url = https://github.com/gramoli/synchrobench.git
