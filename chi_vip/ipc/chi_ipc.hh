@@ -145,7 +145,8 @@ struct ChiIpcSnp {
     uint8_t  trace_tag;     // [E.b] TraceTag: propagated trace marker
     uint8_t  c_busy;        // [E.b] Component Busy [2:0]
     uint16_t mpam;          // [E]   MPAM[10:0]: forwarded partitioning context
-    uint8_t  _pad2[4];      // explicit padding to sizeof=32
+    uint16_t tgt_id;        // target RN-F NodeID (used by questa_top_ipc to route g2q_snp)
+    uint8_t  _pad2[2];      // explicit padding to sizeof=32
 };
 static_assert(sizeof(ChiIpcSnp) == 32, "ChiIpcSnp layout changed — update protocol version");
 
