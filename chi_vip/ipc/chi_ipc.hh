@@ -193,20 +193,37 @@ struct alignas(64) ChiRingBuf {
 // Shared memory layout — placed at offset 0 of the named shm segment
 // ─────────────────────────────────────────────────────────────────────────────
 struct ChiShmLayout {
-    // Each side writes the ps-time it has processed up to.
-    // Neither side blocks; these are advisory progress markers.
+    static constexpr int MAX_RNF = 8;
+
+    // Advisory progress markers.
     alignas(64) std::atomic<uint64_t> gem5_grant_ps{0};
     alignas(64) std::atomic<uint64_t> questa_grant_ps{0};
 
-    // Q2G: DUT → gem5 HN-F
-    ChiRingBuf<ChiIpcReq, 64> q2g_req;
-    ChiRingBuf<ChiIpcRsp, 64> q2g_rsp;
-    ChiRingBuf<ChiIpcDat, 32> q2g_dat;
+    // RN-F configuration (written by gem5 VIPControllers during init).
+    // num_rnf: number of active RN-Fs (0 until gem5 has written it).
+    // rnf_nid[i]: RTL CHI NodeID for queue slot i.
+    // questa_top_ipc reads num_rnf/rnf_nid to route incoming flits by src_id.
+    alignas(64) std::atomic<uint32_t> num_rnf{0};
+    uint16_t rnf_nid[MAX_RNF];
+    uint8_t  _rnf_pad[64 - 4 - MAX_RNF * 2];  // pad header block to 64 bytes
 
-    // G2Q: gem5 HN-F → DUT
+    // Q2G: DUT → gem5 HN-F, one ring per RN-F indexed by rnf_index(src_id).
+    ChiRingBuf<ChiIpcReq, 64> q2g_req[MAX_RNF];
+    ChiRingBuf<ChiIpcRsp, 64> q2g_rsp[MAX_RNF];
+    ChiRingBuf<ChiIpcDat, 32> q2g_dat[MAX_RNF];
+
+    // G2Q: gem5 HN-F → DUT (shared; VIPController sets tgt_id per message).
     ChiRingBuf<ChiIpcRsp, 64> g2q_rsp;
     ChiRingBuf<ChiIpcDat, 32> g2q_dat;
     ChiRingBuf<ChiIpcSnp, 64> g2q_snp;
+
+    // Map RTL SrcID → q2g queue index.  Returns 0 if not found (safe fallback).
+    int rnf_index(uint16_t src_id) const {
+        uint32_t n = num_rnf.load(std::memory_order_acquire);
+        for (uint32_t i = 0; i < n && i < (uint32_t)MAX_RNF; ++i)
+            if (rnf_nid[i] == src_id) return static_cast<int>(i);
+        return 0;
+    }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

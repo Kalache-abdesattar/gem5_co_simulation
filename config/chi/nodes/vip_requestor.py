@@ -122,6 +122,7 @@ if _HAS_VIP_CONTROLLER:
 
         def __init__(self, network: RubyNetwork, cache_line_size: int,
                      ruby_system, shm_name: str = "/chi_vip_0",
+                     rnf_index: int = 0, rtl_src_id: int = 0,
                      num_tbes: int = 256, num_snoop_tbes: int = 64):
             super().__init__()
 
@@ -131,7 +132,9 @@ if _HAS_VIP_CONTROLLER:
             from ruby.CHI_config import Versions
             from m5.objects import CHI_Cache_Controller
             self.version = Versions.getVersion(CHI_Cache_Controller)
-            self.shm_name   = shm_name
+            self.shm_name    = shm_name
+            self.rnf_index   = rnf_index
+            self.rtl_src_id  = rtl_src_id
             self.ruby_system = ruby_system
 
             # CHIGenericController needs data_channel_size.
@@ -153,7 +156,8 @@ if _HAS_VIP_CONTROLLER:
             # Generous TBE counts for a high-performance RTL DUT.
             self.transitions_per_cycle = 1024
 
-            print(f"[VIPRequestorCoSim] version={self.version} shm='{shm_name}'")
+            print(f"[VIPRequestorCoSim] version={self.version} shm='{shm_name}'"
+                  f" rnf_index={rnf_index} rtl_src_id={rtl_src_id}")
 
 else:
     # Provide a stub so imports always succeed; raise at instantiation time.

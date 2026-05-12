@@ -72,11 +72,22 @@ from ruby import Ruby
 
 parser = argparse.ArgumentParser(description='CHI HN-F only co-sim (no CPUs)')
 parser.add_argument('--shm-name', type=str, default='/chi_vip_0')
+parser.add_argument('--num-rnf', type=int, default=1,
+                    help='Number of RTL RN-Fs (VIPController instances)')
+parser.add_argument('--rnf-src-ids', type=str, default=None,
+                    help='Comma-separated RTL CHI NodeIDs for each RN-F '
+                         '(e.g. "0,1"); defaults to "0,1,...,num-rnf-1"')
 parser.add_argument('--max-ticks', type=int, default=10_000_000_000,
                     help='Stop after this many ticks (default 10 s at 1 THz)')
 Options.addNoISAOptions(parser)
 Ruby.define_options(parser)
 args = parser.parse_args()
+
+# Resolve RN-F NodeID list
+if args.rnf_src_ids is not None:
+    _rnf_src_ids = [int(x.strip()) for x in args.rnf_src_ids.split(',')]
+else:
+    _rnf_src_ids = list(range(args.num_rnf))
 
 # CHI defaults
 if not getattr(args, 'topology', None):    args.topology = 'Pt2Pt'
@@ -140,8 +151,10 @@ system.bootmem = SimpleMemory(
 )
 print(f"[chi_hnf_only] Boot ROM: {_bootrom_size} bytes @ 0x{_BOOTROM_BASE:x} ({_BOOTROM_BIN})")
 
-system._vip_shm_names = [args.shm_name]
-print(f"[chi_hnf_only] VIPController shm='{args.shm_name}'")
+system._vip_shm_names   = [args.shm_name] * args.num_rnf
+system._vip_rnf_src_ids = _rnf_src_ids
+print(f"[chi_hnf_only] VIPController shm='{args.shm_name}'"
+      f" num_rnf={args.num_rnf} rtl_src_ids={_rnf_src_ids}")
 
 # Pass cpus=[] explicitly — no CPUs, only VIPController as requestor
 Ruby.create_system(args, False, system, bootmem=system.bootmem, cpus=[])

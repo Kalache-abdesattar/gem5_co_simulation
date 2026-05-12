@@ -180,23 +180,29 @@ void questa_top_ipc::clk_posedge()
             // request. Do NOT push to ring buffer or return a credit (that
             // would inflate the credit count).
         } else {
-            if (!shm->q2g_req.push(msg))
-                fprintf(stderr, "[questa_top_ipc] q2g_req full — dropped REQ!\n");
+            int idx = shm->rnf_index(msg.src_id);
+            if (!shm->q2g_req[idx].push(msg))
+                fprintf(stderr, "[questa_top_ipc] q2g_req[%d] full — dropped REQ src=%u!\n",
+                        idx, (unsigned)msg.src_id);
             send_req_crd = true;
         }
     }
 
     if (txrsp_flitv.read()) {
         chi_ipc::ChiIpcRsp msg = rsp_flit_to_ipc(txrsp_flit.read());
-        if (!shm->q2g_rsp.push(msg))
-            fprintf(stderr, "[questa_top_ipc] q2g_rsp full — dropped RSP!\n");
+        int idx = shm->rnf_index(msg.src_id);
+        if (!shm->q2g_rsp[idx].push(msg))
+            fprintf(stderr, "[questa_top_ipc] q2g_rsp[%d] full — dropped RSP src=%u!\n",
+                    idx, (unsigned)msg.src_id);
         send_rsp_crd = true;
     }
 
     if (txdat_flitv.read()) {
         chi_ipc::ChiIpcDat msg = dat_flit_to_ipc(txdat_flit.read());
-        if (!shm->q2g_dat.push(msg))
-            fprintf(stderr, "[questa_top_ipc] q2g_dat full — dropped DAT!\n");
+        int idx = shm->rnf_index(msg.src_id);
+        if (!shm->q2g_dat[idx].push(msg))
+            fprintf(stderr, "[questa_top_ipc] q2g_dat[%d] full — dropped DAT src=%u!\n",
+                    idx, (unsigned)msg.src_id);
         send_dat_crd = true;
         // NCBWrData (opcode 0x3) is assembled from a single 256-bit RTL beat
         // so the ICN spent only one credit.  All other DAT types use two beats;
