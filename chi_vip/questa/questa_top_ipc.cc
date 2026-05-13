@@ -179,8 +179,13 @@ void questa_top_ipc::clk_posedge()
             // ReqLCrdReturn (opcode 0x00): credit-return flit, not a real
             // request. Do NOT push to ring buffer or return a credit (that
             // would inflate the credit count).
+            fprintf(stderr, "[ipc] Phase3 ReqLCrdReturn src=%u @%lupc\n",
+                    (unsigned)msg.src_id, (unsigned long)questa_ps_);
         } else {
             int idx = shm->rnf_index(msg.src_id);
+            fprintf(stderr, "[ipc] Phase3 TXREQ op=0x%02x txn=%u src=%u addr=0x%lx → q2g_req[%d] @%lupc\n",
+                    msg.opcode, msg.txn_id, (unsigned)msg.src_id,
+                    (unsigned long)msg.addr, idx, (unsigned long)questa_ps_);
             if (!shm->q2g_req[idx].push(msg))
                 fprintf(stderr, "[questa_top_ipc] q2g_req[%d] full — dropped REQ src=%u!\n",
                         idx, (unsigned)msg.src_id);
