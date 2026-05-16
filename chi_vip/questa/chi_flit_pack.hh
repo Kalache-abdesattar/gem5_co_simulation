@@ -376,7 +376,8 @@ inline void pack_dat(const chi::chi_data_extension& e,
 // ─────────────────────────────────────────────────────────────────────────────
 inline void pack_snp(const chi::chi_snp_extension& e,
                      uint64_t addr,
-                     sc_dt::sc_bv<CHI_SNP_FLIT_W>& f)
+                     sc_dt::sc_bv<CHI_SNP_FLIT_W>& f,
+                     uint16_t tgt_id = 0)
 {
     using F = snp_f;
     f = 0;
@@ -391,7 +392,7 @@ inline void pack_snp(const chi::chi_snp_extension& e,
     bf_setb(f, F::DONOTGOTOSD_LO, e.req.is_do_not_goto_sd());
     bf_setb(f, F::RETTOSRC_LO,    e.req.is_ret_to_src());
     bf_setb(f, F::TRACETAG_LO,    e.req.is_trace_tag());
-    bf_set(f, F::TGTID_LO,        F::TGTID_W,     0u); // single RN-F; routing handled by TB
+    bf_set(f, F::TGTID_LO,        F::TGTID_W,    static_cast<uint64_t>(tgt_id));
 }
 
 } // namespace chi_flit

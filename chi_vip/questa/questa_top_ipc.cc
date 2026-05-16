@@ -442,7 +442,7 @@ SnpFlit questa_top_ipc::ipc_to_snp_flit(const chi_ipc::ChiIpcSnp& m)
     e.req.set_do_not_goto_sd(static_cast<bool>(m.do_not_goto_sd));
     e.req.set_do_not_data_pull(static_cast<bool>(m.do_not_data_pull));
     SnpFlit f;
-    pack_snp(e, m.addr, f);
+    pack_snp(e, m.addr, f, m.tgt_id);
 
     using F = chi_flit::snp_f;
     uint64_t f_addr = chi_flit::bf_get(f, F::ADDR_LO, F::ADDR_W);
