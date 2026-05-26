@@ -8,26 +8,24 @@ CVA6 RN-F RTL during gem5 co-simulation.
 ## Bug 1: CBWrData_UD_PD sent after SnpUnique invalidated the line
 
 ### Status
-Open — RTL bug, gem5 panics on receipt.
+Open — RTL bug, accepted as known failure.  VIPController passes the flit
+through unmodified; gem5 aborts with "Received unexpected message" when the
+non-compliant `CBWrData_UD_PD` arrives at the HN-F.
 
 ### Observed in
-| ISA | Stale request | Trigger |
-|---|---|---|
-| RISCV_CHI | WriteCleanFull (txnId=10) | ReadUnique from Cache-1 |
-| X86_CHI | WriteBackPtl (txnId=0x106) | AtomicReturn from Cache-1 |
+| ISA | Stale request | Trigger | gem5 error line |
+|---|---|---|---|
+| RISCV_CHI | WriteCleanFull (txnId=10) | ReadClean from Cache-1 | CHI-cache-actions.sm:2213 |
+| X86_CHI   | WriteBackPtl (txnId=0x106) | AtomicReturn from Cache-1 | CHI-cache-actions.sm:2213 |
 
 ### Symptom
-gem5 HN-F panics in `Receive_ReqDataResp` with (RISCV_CHI instance):
+gem5 HN-F aborts in `Receive_ReqDataResp`.  Run with `--debug-flags=RubySlicc`
+to see the full context (RISCV_CHI example):
 ```
-unexpected type=CBWrData_UD_PD reqType=WriteCleanFull
-requestor=Cache-2 dir_owner=Cache-1
-expected: data:[10(pend), 7(pend)]   (CBWrData_SC, CBWrData_I)
-```
-and (X86_CHI instance):
-```
-unexpected type=CBWrData_UD_PD reqType=WriteBackPtl
-requestor=Cache-2 dir_owner=<none>
-expected: data:[10(pend), 7(pend)]   (CBWrData_SC, CBWrData_I)
+unexpected type=CBWrData_UD_PD reqType=WriteCleanFull requestor=Cache-2
+responder=Cache-2 dir_ownerExists=1 dir_owner=Cache-1
+addr=0x80000400 accAddr=0x80000430 txnId=10
+expected=data:[10(pend), 7(pend)]  (CBWrData_SC, CBWrData_I)
 ```
 
 ### Scenario (RISCV_CHI — WriteCleanFull)
