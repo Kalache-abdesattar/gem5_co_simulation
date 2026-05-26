@@ -116,28 +116,147 @@ chi_vip/
 
 ## Dependencies
 
-| Library | Version | Location |
-|---------|---------|----------|
-| SystemC | 2.3.4   | `$PATH_SYSTEMC/` (headers in `src/`, lib in `build/src/`) |
-| SCC (Minres SystemC Components) | — | `$PATH_SCC/` |
+| Library | Version | Makefile variable | Used by |
+|---------|---------|-------------------|---------|
+| SystemC (standalone) | 2.3.4 | `SC_ROOT` | `make` unit-test builds (`libchi_vip.so`, all `build/test_*`) |
+| SCC (Minres SystemC Components) | — | `LIBSOC` | compile-time headers (`chi/chi_tlm.h`) for `chi_vip_controller.cc` and sccom; `libscc-shared.so` at runtime for TLM path |
+| Questa Sim-64 | 2024.1+ | `QUESTA` | `make questa_build` / `make rnf_build_sc` — provides `sccom`, `vlog`, `vsim`, and the bundled `libsystemc_cpp17.a` |
 
 SCC provides `chi/chi_tlm.h` which defines the CHI TLM2 extensions:
 - `chi::chi_ctrl_extension` — REQ and RSP channels
 - `chi::chi_data_extension` — DAT channel
 - `chi::chi_snp_extension` — SNP channel
 
-No ARM proprietary libraries are required.
+The Questa `questa_build` target links against Questa's own bundled
+`libsystemc_cpp17.a` (static), not the standalone SystemC installation.
+The standalone SystemC is only needed for the `make` unit-test path.
 
 ---
 
 ## Building
 
+### 1. Standalone SystemC (required for unit-test builds)
+
+The Makefile variable `SC_ROOT` points to the SystemC source tree (headers
+in `$(SC_ROOT)/src`, shared library in `$(SC_ROOT)/build/src/`).
+
+```bash
+git clone https://github.com/accellera-official/systemc.git ~/systemc
+cd ~/systemc
+mkdir build && cd build
+cmake .. -DCMAKE_CXX_STANDARD=17
+make -j$(nproc)
+# No install step needed — the Makefile references the build tree directly.
+```
+
+Pass `SC_ROOT` to make if you cloned elsewhere:
+
+```bash
+make SC_ROOT=~/systemc          # or any other path
+```
+
+### 2. SCC — Minres SystemC Components (required for TLM path)
+
+SCC is built with [Conan 2](https://conan.io/) which downloads `systemc/2.3.3`
+automatically as part of the build. Questa is **not** required to build SCC.
+
+```bash
+# Install Conan 2 (once)
+pip install conan
+conan profile detect        # creates ~/.conan2/profiles/default
+
+# Clone and build
+git clone https://github.com/Minres/SystemC-Components.git ~/SystemC-Components
+cd ~/SystemC-Components
+
+cmake -S . -B build/Release \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=~/scc_install \
+    -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake \
+    --fresh
+
+cmake --build build/Release -j$(nproc)
+cmake --install build/Release
+```
+
+Pass `LIBSOC` to make pointing at the install prefix:
+
+```bash
+make LIBSOC=~/scc_install
+```
+
+At runtime `libscc-shared.so` needs `libsystemc.so.2.3` on `LD_LIBRARY_PATH`.
+Both Conan's downloaded `systemc/2.3.3` and Questa's bundled
+`linux_x86_64/libsystemc.so.2.3` export this soname and satisfy the
+dependency.
+
+### 3. chi_vip unit-test build
+
+Requires: standalone SystemC (`SC_ROOT`), SCC (`LIBSOC`).
+
 ```bash
 cd chi_vip
-make          # produces build/libchi_vip.so and build/smoke
-make run      # runs the smoke test (expects "PASS: init() and first tick completed")
+make SC_ROOT=~/systemc LIBSOC=~/scc_install
+make run              # runs all 619 unit tests
 make clean
 ```
+
+### 4. Questa co-simulation build (questa_build)
+
+Requires: Questa 2024.1+ (`QUESTA`), SCC headers (`LIBSOC`).
+Does **not** require the standalone SystemC — links Questa's bundled
+`libsystemc_cpp17.a` (static).
+
+```bash
+cd chi_vip
+make questa_build \
+    QUESTA=/path/to/questa/questasim \
+    LIBSOC=~/scc_install
+```
+
+This produces `questa_build/work/systemc.so` — the SystemC shared object
+that `vsim` loads for the IPC co-simulation bridge.
+
+On first run the target patches Questa's bundled `ld` with a wrapper that
+calls the system linker (required on Fedora 40+ / Ubuntu 24+ due to RELR
+section incompatibility). Undo with `make questa_build_restore_ld`.
+
+### 5. CVA6 RN-F co-simulation SC build (rnf_build_sc)
+
+Recompiles the chi_vip SystemC sources into the cva6-RNF Questa work
+library. Run this after any change to `questa/questa_top_ipc*.cc` or
+`ipc/chi_ipc.cc`.
+
+```bash
+cd chi_vip
+make rnf_build_sc \
+    QUESTA=/path/to/questa/questasim \
+    LIBSOC=~/scc_install \
+    RNF_WORK=/path/to/cva6-RNF/work
+```
+
+### 6. gem5 build (VIPController IPC bridge)
+
+The gem5 side is built with SCons from the `gem5/` submodule. The
+`VIPController` and `chi_ipc.cc` are compiled directly into the gem5 binary
+(no shared library involved).
+
+```bash
+cd gem5
+scons build/RISCV_CHI/gem5.opt \
+    BUILD_VIP=1 \
+    CHI_VIP_IPC_PATH=$(pwd)/../chi_vip/ipc \
+    -j$(nproc)
+
+# For X86:
+scons build/X86_CHI/gem5.opt \
+    BUILD_VIP=1 \
+    CHI_VIP_IPC_PATH=$(pwd)/../chi_vip/ipc \
+    -j$(nproc)
+```
+
+The VIPController does not depend on SystemC or SCC — it is a pure C++
+IPC bridge using POSIX shared memory (`-lrt`).
 
 ---
 
