@@ -89,8 +89,7 @@ class PrivateL1MOESICache(AbstractNode):
 
         # This should be set to true in the data cache controller to enable
         # timeouts on unique lines when a store conditional fails
-        # self.sc_lock_enabled = sc_lock_enabled_
-        # print(f"SC LOCKED? {self.sc_lock_enabled}")
+        self.sc_lock_enabled = sc_lock_enabled_
 
         # ---------- Prefetcher ----------
         # if config.get("use_prefetcher"):
@@ -102,7 +101,10 @@ class PrivateL1MOESICache(AbstractNode):
 
 
         # ---------- Core-specific flags ----------
-        self.send_evictions = core.requires_send_evicts()
+        # RISC-V LR/SC requires eviction callbacks to clear the ISA reservation
+        # when a monitored line is snooped away (gem5's requires_send_evicts()
+        # omits RISCV; forcing True here prevents stale SC writes).
+        self.send_evictions = True
 
 
         # ---------- Home node flags ----------

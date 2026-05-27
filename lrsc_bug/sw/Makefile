@@ -1,10 +1,9 @@
 CROSS   ?= riscv64-unknown-elf-
 CC       = $(CROSS)gcc
-# -nostdlib: no libc/crt; _start in lrsc_stress.S provides the entry point
-CFLAGS   = -static -march=rv64imafd -mabi=lp64d -nostdlib -g
+CFLAGS   = -static -mabi=lp64d -O1 -g
 
 TARGET   = lrsc_stress
-SRC      = lrsc_stress.S
+SRC      = lrsc_stress.c
 
 .PHONY: all clean
 
