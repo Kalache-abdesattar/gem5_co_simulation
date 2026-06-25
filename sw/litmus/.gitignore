@@ -1,0 +1,3 @@
+# Ported tests are opt-in — commit individual files explicitly.
+ported/*
+!ported/.gitkeep

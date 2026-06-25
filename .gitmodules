@@ -10,3 +10,6 @@
 [submodule "sw/ascylib"]
 	path = sw/ascylib
 	url = https://github.com/LPD-EPFL/ASCYLIB.git
+[submodule "sw/litmus-tests-riscv"]
+	path = sw/litmus-tests-riscv
+	url = https://github.com/litmus-tests/litmus-tests-riscv.git
