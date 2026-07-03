@@ -157,18 +157,33 @@ make SC_ROOT=~/systemc          # or any other path
 
 ### 2. SCC — Minres SystemC Components (required for TLM path)
 
-SCC is built with [Conan 2](https://conan.io/) which downloads `systemc/2.3.3`
-automatically as part of the build. Questa is **not** required to build SCC.
+SCC is built with [Conan 2](https://conan.io/) which downloads and builds
+its dependencies automatically. Questa is **not** required to build SCC.
 
 ```bash
 # Install Conan 2 (once)
 pip install conan
 conan profile detect        # creates ~/.conan2/profiles/default
 
-# Clone and build
+# Clone
 git clone https://github.com/Minres/SystemC-Components.git ~/SystemC-Components
 cd ~/SystemC-Components
+```
 
+**Two install variants are needed** depending on which SystemC soname the
+resulting `libscc-shared.so` links against:
+
+| Variant | `libsystemc.so` soname | Used by |
+|---------|------------------------|---------|
+| `~/scc_install` | `libsystemc.so.2.3` | unit tests, `questa_build`, `rnf_build_sc` |
+| *(optional standalone)* | `libsystemc.so.3.0` | standalone SystemC 3.x builds |
+
+For this project only the **`libsystemc.so.2.3`** variant is required —
+it is compatible with Questa's bundled `linux_x86_64/libsystemc.so.2.3`
+at runtime. Build it by pinning `systemc/2.3.3` in `conanfile.py`
+(already the default in this repo's copy):
+
+```bash
 cmake -S . -B build/Release \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=~/scc_install \
@@ -185,10 +200,9 @@ Pass `LIBSOC` to make pointing at the install prefix:
 make LIBSOC=~/scc_install
 ```
 
-At runtime `libscc-shared.so` needs `libsystemc.so.2.3` on `LD_LIBRARY_PATH`.
-Both Conan's downloaded `systemc/2.3.3` and Questa's bundled
-`linux_x86_64/libsystemc.so.2.3` export this soname and satisfy the
-dependency.
+> **Note:** If Conan tries to fetch/build `doxygen` and fails, remove the
+> `build_requirements` method from `conanfile.py` — doxygen is only needed
+> for doc generation and is not required to build the library.
 
 ### 3. chi_vip unit-test build
 
