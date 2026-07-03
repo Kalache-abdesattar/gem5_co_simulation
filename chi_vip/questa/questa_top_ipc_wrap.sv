@@ -40,7 +40,7 @@
 //     clk : in std_logic; rstn : in std_logic;
 //     txreq_flitv/pend/flit(112:0)/lcrdv; txrsp_flitv/pend/flit(55:0)/lcrdv;
 //     txdat_flitv/pend/flit(636:0)/lcrdv; rxrsp_flitv/pend/flit(55:0)/lcrdv;
-//     rxdat_flitv/pend/flit(636:0)/lcrdv; rxsnp_flitv/pend/flit(101:0)/lcrdv);
+//     rxdat_flitv/pend/flit(636:0)/lcrdv; rxsnp_flitv/pend/flit(102:0)/lcrdv);
 
 `timescale 1ps/1ps
 
@@ -60,7 +60,7 @@ package chi_ipc_pkg;
     localparam int CHI_REQ_FLIT_W = 117;
     localparam int CHI_RSP_FLIT_W =  64;
     localparam int CHI_DAT_FLIT_W = 645;
-    localparam int CHI_SNP_FLIT_W = 102;
+    localparam int CHI_SNP_FLIT_W = 103;
 endpackage : chi_ipc_pkg
 
 // ─────────────────────────────────────────────────────────────────────────────

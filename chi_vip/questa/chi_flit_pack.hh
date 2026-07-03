@@ -169,15 +169,21 @@ struct dat_f {
 //
 // Field order matches the RTL chie_defines.v layout exactly so the IPC
 // wire can be forwarded to the DUT without per-field remapping:
+// Layout matches the gem5 TB's IPC_SNP_W=103 SCC layout
+// (riscv_rnf_gem5_tb.sv snp_ipc2rtl), which remaps these IPC bit positions to
+// the narrower RTL SNP flit:
 //   [46:0]  — QOS/SRCID/TXNID/FWDNID/FWDTXNID/OPCODE  (bit-exact with RTL)
-//   [90:47] — ADDR (CHI_SNP_ADDR_W bits = CHIE_SNP_ADDR_WIDTH_PARAM)
-//             byte_addr >> 3 (cache-line address); rx_control.sv reconstructs
-//             byte addr as {rxsnp_addr_r[width-6:0], 3'b000}
-//   [93:91] — NS / DONOTGOTOSD / RETTOSRC
-//   [94]    — TRACETAG
-//   [101:95]— TGTID (identifies the target RN-F)
+//   [90:47] — ADDR (CHI_SNP_ADDR_W = 44 bits; byte_addr >> 3).  TB forwards
+//             only [87:47] to the RTL 41-bit field and zero-fills the top.
+//   [91]    — NS
+//   [92]    — DONOTGOTOSD
+//   [93]    — RETTOSRC
+//   [94]    — DONOTDATAPULL (reserved; not wired to RTL, but MUST occupy this
+//             slot so TGTID lands where the TB reads it)
+//   [95]    — TRACETAG
+//   [102:96]— TGTID (identifies the target RN-F; TB routes the snoop by this)
 //
-// Total: CHI_SNP_ADDR_W + CHI_NODEID_W*3 + 37 = 102 bits (default config)
+// Total: CHI_SNP_ADDR_W + CHI_NODEID_W*3 + 38 = 103 bits (default config)
 // ─────────────────────────────────────────────────────────────────────────────
 struct snp_f {
     static constexpr int QOS_LO          = 0;
@@ -197,10 +203,11 @@ struct snp_f {
     static constexpr int NS_LO           = ADDR_LO        + ADDR_W;      // 91
     static constexpr int DONOTGOTOSD_LO  = NS_LO           + 1;          // 92
     static constexpr int RETTOSRC_LO     = DONOTGOTOSD_LO  + 1;          // 93
-    static constexpr int TRACETAG_LO     = RETTOSRC_LO     + 1;          // 94
-    static constexpr int TGTID_LO        = TRACETAG_LO     + 1;          // 95
+    static constexpr int DONOTDATAPULL_LO = RETTOSRC_LO    + 1;          // 94
+    static constexpr int TRACETAG_LO     = DONOTDATAPULL_LO + 1;         // 95
+    static constexpr int TGTID_LO        = TRACETAG_LO     + 1;          // 96
     static constexpr int TGTID_W         = CHI_NODEID_W;
-    static constexpr int TOTAL_W         = TGTID_LO        + TGTID_W;    // 102
+    static constexpr int TOTAL_W         = TGTID_LO        + TGTID_W;    // 103
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -209,7 +216,7 @@ struct snp_f {
 static constexpr int CHI_REQ_FLIT_W = req_f::TOTAL_W;  // 117 (default config)
 static constexpr int CHI_RSP_FLIT_W = rsp_f::TOTAL_W;  //  64
 static constexpr int CHI_DAT_FLIT_W = dat_f::TOTAL_W;  // 645
-static constexpr int CHI_SNP_FLIT_W = snp_f::TOTAL_W;  // 102
+static constexpr int CHI_SNP_FLIT_W = snp_f::TOTAL_W;  // 103
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REQ flit ↔ chi_ctrl_extension (inbound: DUT RN-F → HN-F proxy)
@@ -391,6 +398,7 @@ inline void pack_snp(const chi::chi_snp_extension& e,
     bf_setb(f, F::NS_LO,          e.req.is_non_secure());
     bf_setb(f, F::DONOTGOTOSD_LO, e.req.is_do_not_goto_sd());
     bf_setb(f, F::RETTOSRC_LO,    e.req.is_ret_to_src());
+    // F::DONOTDATAPULL_LO reserved (0): not wired to RTL, keeps TGTID aligned.
     bf_setb(f, F::TRACETAG_LO,    e.req.is_trace_tag());
     bf_set(f, F::TGTID_LO,        F::TGTID_W,    static_cast<uint64_t>(tgt_id));
 }

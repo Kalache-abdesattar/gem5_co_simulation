@@ -215,6 +215,10 @@ QUESTA_LD := $(QUESTA)/gcc-10.3.0-linux_x86_64/libexec/gcc/x86_64-pc-linux-gnu/1
 # that vsim can load (Questa's bundled libstdc++ tops out at GLIBCXX_3.4.28).
 # System g++ produces GLIBCXX_3.4.30 symbols which Questa's libstdc++ cannot resolve.
 QUESTA_CXX := $(QUESTA)/gcc-10.3.0-linux_x86_64/bin/g++
+# System libstdc++.so.6 (resolved portably: Fedora uses /usr/lib64, Debian/Ubuntu
+# uses /usr/lib/x86_64-linux-gnu).  vsim must LD_PRELOAD/stage this so the newer
+# GLIBCXX symbols in systemc.so resolve against the system runtime.
+LIBSTDCXX ?= $(realpath $(shell $(CC) -print-file-name=libstdc++.so.6))
 QUESTA_BUILD := $(CURDIR)/questa_build
 QUESTA_OBJDIR := $(QUESTA_BUILD)/work/_sc/linux_x86_64_gcc-10.3.0
 SCCOM_FLAGS := -suppress sccom-94 -O2 -std=c++17 \
@@ -318,7 +322,7 @@ $(QUESTA_BUILD)/work/systemc_sv.so: \
 	cp $(QUESTA_OBJDIR)/systemc.so $@
 	# Copy system libstdc++ alongside systemc.so so the dynamic linker finds
 	# it before Questa's bundled copy (which lacks GLIBCXX_3.4.29).
-	cp /usr/lib64/libstdc++.so.6 $(QUESTA_OBJDIR)/libstdc++.so.6
+	cp $(LIBSTDCXX) $(QUESTA_OBJDIR)/libstdc++.so.6
 
 $(QUESTA_BUILD)/work/questa_top_ipc_wrap: questa/questa_top_ipc_wrap.sv \
         | $(QUESTA_BUILD)/work/systemc.so
@@ -359,7 +363,7 @@ questa_build_cosim: $(QUESTA_BUILD)/work/systemc_sv.so $(QUESTA_BUILD)/work/tb_g
 	@echo "  Terminal 2 (questa):"
 	@echo "    cd chi_vip/"
 	@echo "    LM_LICENSE_FILE=1718@localhost \\"
-	@echo "    LD_PRELOAD=/usr/lib64/libstdc++.so.6 \\"
+	@echo "    LD_PRELOAD=$(LIBSTDCXX) \\"
 	@echo "    PATH=$(QUESTA)/bin:\$$PATH \\"
 	@echo "    vsim -c -lib questa_build/work questa_top_ipc_wrap tb_gem5_cosim \\"
 	@echo "        -do 'run -all; quit -f'"
@@ -394,11 +398,11 @@ rnf_build_sc:
 	cd $(dir $(RNF_WORK)) && PATH=$(QUESTA)/bin:$$PATH sccom -suppress sccom-94 -work $(RNF_WORK) -link
 	# Deploy to work/systemc.so and stage system libstdc++
 	cp $(RNF_OBJDIR)/systemc.so $(RNF_WORK)/systemc.so
-	cp /usr/lib64/libstdc++.so.6 $(RNF_OBJDIR)/
+	cp $(LIBSTDCXX) $(RNF_OBJDIR)/libstdc++.so.6
 	@echo ""
 	@echo "━━━ rnf_build_sc complete ━━━"
 	@echo "  $(RNF_WORK)/systemc.so updated"
-	@echo "  Run vsim with: LD_PRELOAD=/usr/lib64/libstdc++.so.6"
+	@echo "  Run vsim with: LD_PRELOAD=$(LIBSTDCXX)"
 
 .PHONY: all run clean cosim-help questa_build questa_build_sv questa_build_cosim questa_ld_patch questa_build_restore_ld rnf_build_sc
 

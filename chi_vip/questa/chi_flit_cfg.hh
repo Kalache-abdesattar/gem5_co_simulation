@@ -14,12 +14,13 @@ static constexpr int CHI_TXNID_W      = 12;
 // Physical address width (bits).
 static constexpr int CHI_ADDR_W       = 44;
 
-// SNP flit address field width = CHIE_SNP_ADDR_WIDTH_PARAM in the RTL.
-// The CHI spec and RTL store byte_addr >> 3 (cache-line granularity) in this
-// field.  pack_snp() shifts addr right by 3; rx_control.sv reconstructs the
-// byte address with {rxsnp_addr_r[width-6:0], 3'b000}.
-// With 44-bit field: covers up to 2^47 = 128 TB byte address space.
-static constexpr int CHI_SNP_ADDR_W   = CHI_ADDR_W;   // = CHIE_SNP_ADDR_WIDTH_PARAM
+// SNP flit address field width, in the SCC/IPC packing (chi_flit_pack.hh).
+// The IPC layer stores byte_addr >> 3 in a 44-bit field [90:47]; the gem5 TB
+// remap (riscv_rnf_gem5_tb.sv snp_ipc2rtl) forwards only the lower 41 bits
+// [87:47] to the RTL's CHIE_SNP_ADDR_WIDTH_PARAM=41 field and zero-fills the
+// top.  Keep this at 44 so the IPC field positions above ADDR match the TB's
+// IPC_SNP_W=103 layout (NS[91] .. TGTID[102:96]).
+static constexpr int CHI_SNP_ADDR_W   = CHI_ADDR_W;   // 44-bit IPC ADDR field
 
 // Logical processor ID width per node (typically 4).
 static constexpr int CHI_LPID_W       = 4;
