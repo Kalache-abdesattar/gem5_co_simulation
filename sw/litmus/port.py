@@ -69,12 +69,20 @@ def expand_pseudo(instr: str) -> list[str]:
 
 def parse_litmus(path: Path) -> LitmusTest:
     text = path.read_text()
+
+    # Strip OCaml-style comments `(* ... *)`.  These can be embedded inside
+    # thread-table cells and even span multiple lines (mixed-size HAND tests),
+    # which would otherwise corrupt the `|` column split.
+    text = re.sub(r"\(\*.*?\*\)", "", text, flags=re.DOTALL)
+
     lines = text.splitlines()
 
     # 1) Name
     m = re.match(r"\s*(RISCV|RISCV64|RISCV32)\s+(\S+)", lines[0])
     if not m:
-        raise ValueError(f"{path}: first line is not 'RISCV <name>'")
+        # Non-RISCV file (e.g. tests/to-AArch64/*.litmus).  Use a sentinel
+        # ValueError that port_one() can quietly skip.
+        raise ValueError(f"{path}: non-RISCV ISA (first line: {lines[0]!r})")
     name = m.group(2)
 
     # 2) Initial-state block: between '{' and '}'
@@ -93,6 +101,10 @@ def parse_litmus(path: Path) -> LitmusTest:
     for stmt in init_text.split(";"):
         stmt = stmt.strip()
         if not stmt:
+            continue
+        # Skip C-style type declarations (e.g. "uint64_t x", "uint64_t 1:x5")
+        # that some SF_THESIS tests include alongside the value bindings.
+        if "=" not in stmt:
             continue
         # forms:  i:rN=value     (thread-local register init)
         #         name=value     (memory location init)
@@ -115,13 +127,37 @@ def parse_litmus(path: Path) -> LitmusTest:
         if loc not in locations:
             locations.append(loc)
 
-    # 3) Thread table: from the line after '}' until 'exists'/'forall'/'final'
+    # 3) Thread table: from the line after '}' until the predicate keyword
+    # (`exists`, `forall`, `final`, or negated `~exists`).  `filter` and
+    # `locations` directives sit between the table and the predicate; we
+    # capture `filter` (ANDed into the assertion) and ignore `locations`.
     body_lines = []
+    filter_expr = ""
     j = i_close + 1
     while j < len(lines):
         l = lines[j].rstrip()
-        if re.match(r"\s*(exists|forall|final)\b", l):
+        if re.match(r"\s*(~?\s*exists|forall|final)\b", l):
             break
+        if re.match(r"\s*filter\b", l):
+            # filter (expr)  — may span multiple lines.
+            buf = re.sub(r"^\s*filter\b", "", l).strip()
+            while not buf.count("(") <= buf.count(")") or buf == "":
+                j += 1
+                if j >= len(lines):
+                    break
+                buf += " " + lines[j].strip()
+            filter_expr = buf.strip()
+            j += 1
+            continue
+        if re.match(r"\s*locations\b", l):
+            # Skip — possibly multi-line `locations [ ... ]`
+            while "]" not in l:
+                j += 1
+                if j >= len(lines):
+                    break
+                l = lines[j]
+            j += 1
+            continue
         if l.strip():
             body_lines.append(l)
         j += 1
@@ -152,12 +188,19 @@ def parse_litmus(path: Path) -> LitmusTest:
     pred_lines = lines[j:]
     if not pred_lines:
         raise ValueError(f"{path}: missing predicate")
-    head = re.match(r"\s*(exists|forall|final)\b", pred_lines[0])
+    head = re.match(r"\s*(~?\s*exists|forall|final)\b(.*)$", pred_lines[0])
     if not head:
         raise ValueError(f"{path}: predicate header parse failed")
-    predicate_kind = head.group(1)
-    # Rest of file is the predicate body — strip outer parens & whitespace
-    predicate = " ".join(l.strip() for l in pred_lines[1:]).strip()
+    predicate_kind = re.sub(r"\s+", "", head.group(1))  # "~exists" or "exists"
+    # The predicate body may be on the same line as `exists` (most SF_THESIS
+    # tests) or on subsequent lines (most diy-generated tests); concatenate.
+    predicate = (head.group(2) + " " +
+                 " ".join(l.strip() for l in pred_lines[1:])).strip()
+    if filter_expr:
+        # `filter F` followed by `exists P` becomes the combined predicate
+        # `(F) /\ (P)` — failure requires the run to pass the filter AND
+        # satisfy the existence/forbidden clause.
+        predicate = f"({filter_expr}) /\\ ({predicate})"
 
     return LitmusTest(name=name, nthreads=nthreads, reg_inits=reg_inits,
                       mem_inits=mem_inits, locations=locations,
@@ -195,6 +238,9 @@ def translate_predicate(p: LitmusTest) -> tuple[str, set[tuple[int, str]], set[s
     expr = expr.replace("/\\", "&&").replace("\\/", "||")
     expr = re.sub(r"(?<![!<>=])=(?!=)", "==", expr)  # single = → ==
     expr = expr.replace("~", "!")
+    # `not` keyword (used in SF_THESIS predicates) → `!`.  Word-boundaried so
+    # we don't mangle identifiers that happen to start with "not".
+    expr = re.sub(r"\bnot\b", "!", expr)
 
     return expr.strip(), needed_regs, needed_locs
 
@@ -387,6 +433,12 @@ def safe_cname(litmus_name: str) -> str:
 def port_one(src: Path, dst: Path) -> None:
     try:
         p = parse_litmus(src)
+    except ValueError as e:
+        # Non-RISCV files (to-AArch64/) are expected — silently skip them.
+        if "non-RISCV ISA" in str(e):
+            return
+        print(f"SKIP {src}: {e}", file=sys.stderr)
+        return
     except Exception as e:
         print(f"SKIP {src}: {e}", file=sys.stderr)
         return
