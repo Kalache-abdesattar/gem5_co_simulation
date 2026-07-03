@@ -72,8 +72,8 @@ gem5 sees only the gem5-side object through its Ruby message buffers.
 | Item | Where |
 |------|-------|
 | Questa Sim-64 with SystemC co-sim option | your EDA install |
-| SystemC 2.3.4 | `/home/dmk/fedora/systemc/` |
-| SCC (Minres SystemC Components) | `/home/dmk/fedora/scc_install/` |
+| SystemC 2.3.4 | `~/systemc/` |
+| SCC (Minres SystemC Components) | `~/scc_install/` |
 | gem5 built with `CHI` protocol | `gem5/build/X86/gem5.opt` (or ARM, RISC-V) |
 | chi_vip shared libraries | `chi_vip/build/libchi_vip.so`, `chi_vip/build/libchi_questa.so` |
 | *(co-sim only)* chi_ipc / questa_ipc libs | `chi_vip/build/libchi_ipc.so`, `chi_vip/build/libchi_questa_ipc.so` |
@@ -310,8 +310,8 @@ Set up environment variables once:
 
 ```bash
 export CHI_VIP=/path/to/gem5_co_simulation/chi_vip
-export SCC=/home/dmk/fedora/scc_install
-export SYSTEMC=/home/dmk/fedora/systemc
+export SCC=~/scc_install
+export SYSTEMC=~/systemc
 ```
 
 Compile all C++ source files using Questa's `sccom`:
@@ -642,8 +642,8 @@ This runs all four compilation steps automatically.
 **What `make questa_build` does:**
 
 ```bash
-QUESTA=/home/dmk/fedora/questa_24/questasim
-LIBSOC=/home/dmk/fedora/scc_install_questa
+QUESTA=~/questa24/questasim
+LIBSOC=~/scc_install
 CHIDIR=$(pwd)
 
 vlib questa_build/work
@@ -1102,7 +1102,7 @@ make questa_build_cosim
 ```bash
 cd gem5/
 python3 $(which scons) build/X86_CHI/gem5.opt BUILD_VIP=1 \
-    CHI_VIP_IPC_PATH=/home/dmk/fedora/gem5_co_simulation/chi_vip/ipc -j12
+    CHI_VIP_IPC_PATH=$(pwd)/chi_vip/ipc -j12
 ```
 
 #### Running the co-simulation
@@ -1121,7 +1121,7 @@ build/X86_CHI/gem5.opt ../config/chi/chi_hnf_only.py \
 # Terminal 2 — Questa (from chi_vip/ directory)
 LM_LICENSE_FILE=1718@localhost \
 LD_PRELOAD=/usr/lib64/libstdc++.so.6 \
-PATH=/home/dmk/fedora/questa_24/questasim/bin:$PATH \
+PATH=$QUESTA/bin:$PATH \
 vsim -c -lib questa_build/work questa_top_ipc_wrap tb_gem5_cosim \
     -do "run -all; quit -f"
 ```

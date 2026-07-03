@@ -17,7 +17,7 @@ make run      # run all thirteen tests in sequence
 Individual test:
 
 ```bash
-LD_LIBRARY_PATH=build:/home/dmk/fedora/systemc/build/src ./build/test_opcode_maps
+LD_LIBRARY_PATH=build:$SC_ROOT/build/src ./build/test_opcode_maps
 ```
 
 Expected output for a passing run:

@@ -1,7 +1,7 @@
 GEM5_SRC  := $(CURDIR)/gem5_src
 SHIM      := $(CURDIR)/chi_shim
-LIBSOC    ?= /home/dmk/fedora/scc_install_questa
-SC_ROOT   ?= /home/dmk/fedora/systemc
+LIBSOC    ?= $(HOME)/scc_install
+SC_ROOT   ?= $(HOME)/systemc
 
 CXX       := g++
 CXXFLAGS  := -std=c++17 -O2 -fPIC -Wall -Wno-unused-variable \
@@ -209,7 +209,7 @@ clean:
 # That change is persistent (until Questa is reinstalled or ld.bak is restored).
 # Run 'make questa_build_restore_ld' to undo.
 
-QUESTA ?= /home/dmk/fedora/questa_24/questasim
+QUESTA ?= $(HOME)/questa24/questasim
 QUESTA_LD := $(QUESTA)/gcc-10.3.0-linux_x86_64/libexec/gcc/x86_64-pc-linux-gnu/10.3.0/ld
 # Questa's bundled g++ 10.3.0: produces GLIBCXX_3.4.26-compatible .so files
 # that vsim can load (Questa's bundled libstdc++ tops out at GLIBCXX_3.4.28).
@@ -368,7 +368,7 @@ questa_build_cosim: $(QUESTA_BUILD)/work/systemc_sv.so $(QUESTA_BUILD)/work/tb_g
 # Rebuilds the SC co-sim library in the cva6-RNF work directory.
 # Must be re-run whenever chi_vip SC sources change or work/ is cleaned.
 # RNF_WORK must point to the cva6-RNF Questa work library directory.
-RNF_WORK ?= /home/dmk/fedora/work/chi-rnf/cva6-RNF/work
+RNF_WORK ?= $(abspath $(CURDIR)/../../chi-rnf/cva6-RNF/work)
 RNF_OBJDIR = $(RNF_WORK)/_sc/linux_x86_64_gcc-10.3.0
 RNF_SCCOM  = PATH=$(QUESTA)/bin:$$PATH sccom -suppress sccom-94 -O2 -std=c++17 \
              -work $(RNF_WORK) \

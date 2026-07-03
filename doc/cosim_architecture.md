@@ -91,7 +91,7 @@ Inherits `CHIGenericController` → `AbstractController`.
 ```bash
 python3 $(which scons) build/X86_CHI/gem5.opt \
     BUILD_VIP=1 \
-    CHI_VIP_IPC_PATH=/home/dmk/fedora/gem5_co_simulation/chi_vip/ipc \
+    CHI_VIP_IPC_PATH=$(pwd)/chi_vip/ipc \
     -j12
 ```
 
@@ -248,7 +248,7 @@ build/X86_CHI/gem5.opt ../config/chi/chi_vip_se.py \
 # Terminal 2 — Questa (opens shm, drives DUT):
 cd chi_vip/
 LM_LICENSE_FILE=1718@localhost \
-PATH=/home/dmk/fedora/questa_24/questasim/bin:$PATH \
+PATH=$QUESTA/bin:$PATH \
 vsim -c -lib questa_build/work questa_top_ipc_wrap tb_ipc_vsim \
     -do "run -all; quit -f"
 ```

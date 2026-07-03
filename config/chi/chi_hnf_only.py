@@ -122,7 +122,7 @@ import os as _os
 #   0xFFF1010000 — boot ROM (CVA6 reset vector)
 _DRAM_BASE    = 0x80000000
 _BOOTROM_BASE = 0xFFF1010000
-_BOOTROM_HEX  = '/home/dmk/fedora/work/chi-rnf/sw/bootrom.hex'
+_BOOTROM_HEX  = _os.path.join(_os.path.dirname(__file__), '../../../chi-rnf/sw/bootrom.hex')
 _BOOTROM_BIN  = _os.path.join(_os.path.dirname(__file__), '../../chi_vip/bootrom.bin')
 
 # Convert hex → little-endian binary (re-generate if hex is newer)
