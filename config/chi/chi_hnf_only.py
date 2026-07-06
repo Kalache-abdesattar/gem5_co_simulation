@@ -77,6 +77,13 @@ parser.add_argument('--num-rnf', type=int, default=1,
 parser.add_argument('--rnf-src-ids', type=str, default=None,
                     help='Comma-separated RTL CHI NodeIDs for each RN-F '
                          '(e.g. "0,1"); defaults to "0,1,...,num-rnf-1"')
+parser.add_argument('--rtl-hnf-nid', type=int, default=None,
+                    help='HN-F NodeID as seen by the RTL DUT (used as SRCID/'
+                         'HOMENID on gem5-outbound flits). Must match the '
+                         'RTL testbench HNF_NID_PARAM. Defaults to num-rnf, '
+                         'which only matches when RTL CORE_COUNT == num-rnf. '
+                         'CVA6 TB fixes CORE_COUNT=2, so pass --rtl-hnf-nid=2 '
+                         'when running with a single RN-F.')
 parser.add_argument('--max-ticks', type=int, default=10_000_000_000,
                     help='Stop after this many ticks (default 10 s at 1 THz)')
 Options.addNoISAOptions(parser)
@@ -122,7 +129,7 @@ import os as _os
 #   0xFFF1010000 — boot ROM (CVA6 reset vector)
 _DRAM_BASE    = 0x80000000
 _BOOTROM_BASE = 0xFFF1010000
-_BOOTROM_HEX  = _os.path.join(_os.path.dirname(__file__), '../../../chi-rnf/sw/bootrom.hex')
+_BOOTROM_HEX  = _os.path.join(_os.path.dirname(__file__), '../../../work/chi-rnf/sw/bootrom.hex')
 _BOOTROM_BIN  = _os.path.join(_os.path.dirname(__file__), '../../chi_vip/bootrom.bin')
 
 # Convert hex → little-endian binary (re-generate if hex is newer)
@@ -153,8 +160,11 @@ print(f"[chi_hnf_only] Boot ROM: {_bootrom_size} bytes @ 0x{_BOOTROM_BASE:x} ({_
 
 system._vip_shm_names   = [args.shm_name] * args.num_rnf
 system._vip_rnf_src_ids = _rnf_src_ids
+if args.rtl_hnf_nid is not None:
+    system._vip_rtl_hnf_nid = args.rtl_hnf_nid
 print(f"[chi_hnf_only] VIPController shm='{args.shm_name}'"
-      f" num_rnf={args.num_rnf} rtl_src_ids={_rnf_src_ids}")
+      f" num_rnf={args.num_rnf} rtl_src_ids={_rnf_src_ids}"
+      f" rtl_hnf_nid={args.rtl_hnf_nid if args.rtl_hnf_nid is not None else 'auto('+str(args.num_rnf)+')'}")
 
 # Pass cpus=[] explicitly — no CPUs, only VIPController as requestor
 Ruby.create_system(args, False, system, bootmem=system.bootmem, cpus=[])

@@ -12,6 +12,7 @@
 
 #include "questa_top_ipc.hh"
 #include <unistd.h>   // usleep
+#include <cstddef>    // offsetof
 #include <cstring>
 
 // ── DPI-C data bypass ────────────────────────────────────────────────────────
@@ -83,6 +84,17 @@ void questa_top_ipc::start_of_simulation()
                     retries / 100);
     }
     fprintf(stderr, "[questa_top_ipc] attached to shm, starting simulation\n");
+    // Layout probe: must match the gem5-side "[VIP:layout]" line.  A mismatch
+    // means the two sides disagree on the ChiIpcDat byte layout, and any
+    // field beyond the first mismatched offset will be read from the wrong
+    // bytes of the shm slot.
+    fprintf(stderr,
+        "[questa_top_ipc:layout] sizeof(ChiIpcDat)=%zu"
+        " off(src_id)=%zu off(tgt_id)=%zu off(home_n_id)=%zu\n",
+        sizeof(chi_ipc::ChiIpcDat),
+        offsetof(chi_ipc::ChiIpcDat, src_id),
+        offsetof(chi_ipc::ChiIpcDat, tgt_id),
+        offsetof(chi_ipc::ChiIpcDat, home_n_id));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -233,8 +245,11 @@ void questa_top_ipc::clk_posedge()
     {
         chi_ipc::ChiIpcDat dat;
         while (shm->g2q_dat.pop(dat)) {
-            fprintf(stderr, "[ipc] Phase4 g2q_dat pop: txn=%u tgt=%u op=%u dat_lcrd_=%u @%lupc\n",
-                    dat.txn_id, dat.tgt_id, dat.opcode, dat_lcrd_,
+            fprintf(stderr,
+                    "[ipc] Phase4 g2q_dat pop: txn=%u src=%u tgt=%u home=%u"
+                    " op=%u dat_lcrd_=%u @%lupc\n",
+                    dat.txn_id, dat.src_id, dat.tgt_id, dat.home_n_id,
+                    dat.opcode, dat_lcrd_,
                     (unsigned long)questa_ps_);
             dat_out_q_.push(ipc_to_dat_flit(dat));
         }

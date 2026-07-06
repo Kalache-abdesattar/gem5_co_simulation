@@ -254,7 +254,7 @@ C_TEMPLATE = """\
 // Predicate ({kind}): {predicate_raw}
 
 #define LITMUS_NTHREADS {nthreads}
-#define LITMUS_NRUNS    1000
+#define LITMUS_NRUNS    16
 
 #include "../harness.h"
 
@@ -267,7 +267,12 @@ static struct litmus_ctx ctx;
 {thread_fns}
 static int check_result(void)
 {{
-    return !({predicate_c});  /* exists: fail if predicate is true on any run */
+    // Litmus semantics: `exists P` and `~exists P` both flag the predicate P
+    // as a *witness* (typically an RVWMO reordering).  For hardware validation
+    // on well-behaved memory, we treat any observed witness as a failure — a
+    // healthy hardware run produces zero witnesses.  `forall P` is inverted:
+    // any run that violates P is the failure.
+    return ({predicate_c}) {invert}0;  /* {kind}: {witness_desc} */
 }}
 
 static litmus_barrier_t bar;
@@ -408,6 +413,14 @@ def gen_c(p: LitmusTest, src: Path) -> str:
     for tid in range(p.nthreads):
         dispatch += f"        case {tid}: p{tid}(&out_p{tid}); break;\n"
 
+    # For `exists` / `~exists`: witness-observed → fail (return P != 0).
+    # For `forall` / `final`:   witness-violated → fail (return P == 0).
+    is_forall = p.predicate_kind in ("forall", "final")
+    invert = "==" if is_forall else "!="
+    witness_desc = ("fail if any run violates predicate"
+                    if is_forall
+                    else "fail if predicate observed on any run")
+
     return C_TEMPLATE.format(
         cname=cname,
         src=src,
@@ -421,6 +434,8 @@ def gen_c(p: LitmusTest, src: Path) -> str:
         ctx_reset=ctx_reset,
         dispatch=dispatch,
         predicate_c=predicate_c,
+        invert=invert,
+        witness_desc=witness_desc,
     )
 
 

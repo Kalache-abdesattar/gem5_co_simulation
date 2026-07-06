@@ -71,9 +71,12 @@ litmus_barrier_wait(litmus_barrier_t *b, int64_t local_sense)
 // tohost reporting (same convention as the rest of sw/ — defined in crt.S)
 extern volatile uint64_t tohost;
 
+// tohost convention matches sw/include/cosim.h (checked by VIPController):
+//   1                          → PASS
+//   0xFA11000000000000 | line  → FAIL (line = 0 for litmus, no source line)
 static inline void
 litmus_report(int failed)
 {
-    tohost = failed ? 1 : 2;  // 2 = "passed" sentinel used by cosim.h
+    tohost = failed ? 0xFA11000000000000ULL : 1ULL;
     for (;;) { asm volatile("wfi"); }
 }

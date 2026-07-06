@@ -37,7 +37,7 @@ MT_TESTS  := mt_test_01_shared_rw mt_test_02_atomic_counter \
 MT_CFLAGS := $(CFLAGS) -DPITON_NUMTILES=$(HARTS)
 MT_WHISPER_OPTS := $(WHISPER_OPTS) --harts $(HARTS) --deterministic 1000:1000
 
-.PRECIOUS: $(ELFS)
+.PRECIOUS: $(ELFS) build/litmus_%.elf build/mt_%.elf build/bm_%.elf
 
 TRACES  := $(TESTS:%=build/%.trace)
 
@@ -130,15 +130,21 @@ litmus: $(LITMUS_TESTS:%=build/litmus_%.bin)
 # Litmus tests use fence.i (zifencei) and AMO acq/rel suffixes; broaden -march.
 LITMUS_CFLAGS := $(MT_CFLAGS) -march=rv64imafdc_zifencei -Isw/litmus
 
-build/litmus_%.elf: $(LITMUS_DIR)/%.c $(CRT_SRC) $(INC)/link.ld | build
+build/litmus_%.elf: $(LITMUS_DIR)/%.c litmus/harness.h $(CRT_SRC) $(INC)/link.ld | build
 	$(CC) $(LITMUS_CFLAGS) $(LDFLAGS) -o $@ $< $(CRT_SRC) -lgcc
 
 build/litmus_%.bin: build/litmus_%.elf
 	$(OBJCOPY) -O binary $< $@
 	@size $<
 
+# Verbose dump: -d (disassemble text) -S (interleave source, requires -g)
+# -l (source file:line annotations) -r (relocs) -t (symbol table) -h (section
+# headers) -C (demangle) --wide (no column truncation) --source-comment=';'
+# (prefix source lines so grep/sed can strip them).  ELFs are built with -g,
+# so source-interleave works even at -O1.
 build/litmus_%.dis: build/litmus_%.elf
-	$(OBJDUMP) -d -S $< > $@
+	$(OBJDUMP) -d -S -l -r -t -h -C --wide --source-comment=';' \
+	           --disassembler-options=numeric $< > $@
 
 build/litmus_%.trace: build/litmus_%.elf
 	$(WHISPER) $(MT_WHISPER_OPTS) --logfile $@ -t $<
