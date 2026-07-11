@@ -9,9 +9,12 @@
 #   2. rm /dev/shm/chi_vip_0
 #   3. spawn gem5 (VIPController creates shm)
 #   4. spawn Questa vsim (opens shm as RN-F)
-#   5. wait up to --timeout seconds for gem5 to exit
-#   6. parse gem5 stdout for "Exited: 'tohost: PASS/FAIL'"
-#   7. kill both processes, record result, continue
+#   5. wait up to --timeout seconds for gem5 to exit — gem5 auto-exits on
+#      the first CHI REQ touching 0x80040000 (tohost, PASS) or 0x80040040
+#      (fromhost, FAIL) and publishes to shm->sim_done
+#   6. wait a short grace period for Questa to observe sim_done and
+#      sc_stop() naturally; kill its process group only if it hangs
+#   7. parse gem5 stdout for "Exited: 'tohost: PASS/FAIL'" and record
 #
 # Ctrl-C aborts the sweep and cleans up any running subprocesses.
 
@@ -40,6 +43,11 @@ LIBSTDCXX    = Path("/usr/lib/libstdc++.so.6.0.34")
 
 SHM_NAME = "/chi_vip_0"
 SHM_PATH = Path("/dev/shm") / SHM_NAME.lstrip("/")
+
+# Single shared Ruby debug log, overwritten on every test (not per-test).
+# gem5 joins --debug-file onto --outdir, but an absolute path wins, so this
+# lands here regardless of the per-test outdir.
+RUBY_DEBUG_LOG = REPO_ROOT / "m5out" / "ruby_debug.log"
 
 
 RE_EXITED = re.compile(r"Exited: '(?P<cause>[^']+)' at tick (?P<tick>\d+)")
@@ -103,7 +111,8 @@ def parse_gem5_result(log_path: Path) -> tuple[str, int | None]:
 def run_one_test(bin_path: Path, log_dir: Path,
                  timeout_s: float,
                  max_ticks: int,
-                 debug_flags: str = "") -> dict[str, str]:
+                 debug_flags: str = "",
+                 debug_per_test: bool = False) -> dict[str, str]:
     name = bin_path.stem.removeprefix("litmus_")
     test_log = log_dir / name
     test_log.mkdir(parents=True, exist_ok=True)
@@ -118,18 +127,31 @@ def run_one_test(bin_path: Path, log_dir: Path,
 
     started = time.monotonic()
 
-    # 3) Spawn gem5.  Isolate the outdir per test so ruby_debug.log and
-    # stats.txt land in the per-test log directory instead of overwriting
-    # each other under a shared m5out/.
-    m5out = test_log / "m5out"
+    # 3) Spawn gem5.  Per-test outdir keeps stats.txt/config.ini separate, but
+    # the Ruby debug log is a single shared file (RUBY_DEBUG_LOG), overwritten
+    # each test — pass it as an absolute --debug-file so it ignores --outdir.
+    # --outdir must be absolute: gem5 runs with cwd=REPO_ROOT while the runner
+    # may be invoked from anywhere (e.g. sw/), so a relative --outdir would
+    # resolve against gem5's cwd and land in a different tree than where the
+    # runner writes gem5.log / questa.log.
+    m5out = (test_log / "m5out").resolve()
     m5out.mkdir(parents=True, exist_ok=True)
     gem5_cmd = [
         str(GEM5_BIN),
         "--outdir", str(m5out),
     ]
     if debug_flags:
+        if debug_per_test:
+            # gem5 joins --debug-file onto --outdir; --outdir is already the
+            # per-test m5out, so a bare filename lands each test's log there.
+            debug_file = "ruby_debug.log"
+        else:
+            # Absolute path wins over the join, so a single shared log is
+            # overwritten each test regardless of --outdir.
+            RUBY_DEBUG_LOG.parent.mkdir(parents=True, exist_ok=True)
+            debug_file = str(RUBY_DEBUG_LOG)
         gem5_cmd += [f"--debug-flags={debug_flags}",
-                     "--debug-file=ruby_debug.log"]
+                     f"--debug-file={debug_file}"]
     gem5_cmd += [
         str(GEM5_CFG),
         "--num-rnf", "2",
@@ -150,6 +172,7 @@ def run_one_test(bin_path: Path, log_dir: Path,
             status, ticks = parse_gem5_result(gem5_log)
             return dict(test=name, status=f"gem5-died:{status}",
                         ticks=str(ticks), duration_s=f"{elapsed:.2f}",
+                        questa_exit="NOT_LAUNCHED",
                         log_dir=str(test_log))
 
     # 4) Spawn Questa vsim from cva6-RNF/
@@ -164,7 +187,11 @@ def run_one_test(bin_path: Path, log_dir: Path,
     questa_proc = spawn(questa_cmd, cwd=RNF_DIR, stdout=questa_log,
                         env=q_env, shell=True)
 
-    # 5) Wait for gem5 (the authoritative test-completion signal)
+    # 5) Wait for gem5 (the authoritative test-completion signal).
+    # With auto-termination (sim_done in shm), Questa self-exits within
+    # one clock cycle of gem5 signalling.  We wait for gem5 first, then
+    # give Questa a short grace period to self-exit; only if it hangs
+    # do we kill its process group.
     try:
         gem5_proc.wait(timeout=timeout_s)
     except subprocess.TimeoutExpired:
@@ -172,15 +199,28 @@ def run_one_test(bin_path: Path, log_dir: Path,
         kill_group(gem5_proc)
         kill_group(questa_proc)
         return dict(test=name, status="TIMEOUT", ticks="",
-                    duration_s=f"{elapsed:.2f}", log_dir=str(test_log))
+                    duration_s=f"{elapsed:.2f}",
+                    questa_exit="KILLED_AFTER_TIMEOUT",
+                    log_dir=str(test_log))
+
+    gem5_elapsed = time.monotonic() - started
+
+    # 6) Grace period for Questa to observe sim_done + sc_stop() naturally.
+    questa_grace_s = 5.0
+    questa_exit = "KILLED"
+    try:
+        questa_proc.wait(timeout=questa_grace_s)
+        questa_exit = "SELF_EXIT"
+    except subprocess.TimeoutExpired:
+        kill_group(questa_proc)
 
     elapsed = time.monotonic() - started
-    kill_group(questa_proc)
-
     status, ticks = parse_gem5_result(gem5_log)
     return dict(test=name, status=status,
                 ticks=str(ticks) if ticks is not None else "",
-                duration_s=f"{elapsed:.2f}", log_dir=str(test_log))
+                duration_s=f"{elapsed:.2f}",
+                questa_exit=questa_exit,
+                log_dir=str(test_log))
 
 
 def main() -> int:
@@ -192,24 +232,41 @@ def main() -> int:
                          "'litmus_' prefix or '.bin' suffix); overrides --bins")
     ap.add_argument("--out", default=str(SW_DIR / "litmus/results.csv"))
     ap.add_argument("--log-dir", default=str(SW_DIR / "litmus/logs"))
-    ap.add_argument("--timeout", type=float, default=30.0,
-                    help="wall-clock seconds per test")
+    ap.add_argument("--timeout", type=float, default=15.0,
+                    help="wall-clock seconds per test.  Auto-termination "
+                         "makes healthy runs finish in <1s of sim time; the "
+                         "default only needs to cover gem5+Questa startup + "
+                         "the test itself, so 15s is plenty.")
     ap.add_argument("--max-ticks", type=int, default=500_000_000_000_000,
                     help="gem5 --max-ticks (fallback if tohost never fires)")
     ap.add_argument("--debug-flags", default="",
-                    help="gem5 --debug-flags (e.g. RubySlicc).  Empty disables "
-                         "debug logging.  Log lands at "
-                         "<log-dir>/<test>/m5out/ruby_debug.log")
+                    help="gem5 --debug-flags (e.g. RubySlicc).  Empty (default) "
+                         "disables debug logging.  When set, output goes to a "
+                         "single shared file (m5out/ruby_debug.log), overwritten "
+                         "each test.")
+    ap.add_argument("--debug-per-test", action="store_true",
+                    help="with --debug-flags, keep each test's ruby_debug.log "
+                         "under <log-dir>/<test>/m5out/ instead of one shared, "
+                         "overwritten file.")
     ap.add_argument("--limit", type=int, default=0,
                     help="stop after N tests (0 = all)")
     ap.add_argument("--skip-existing", action="store_true",
                     help="skip tests already present in --out")
+    ap.add_argument("--skip-list", default=None,
+                    help="text file with one test name per line to skip "
+                         "(e.g. litmus/skip.list of already-passing tests).  "
+                         "Unlike --skip-existing, this skips only the listed "
+                         "tests regardless of the --out CSV, so failing/timeout "
+                         "tests still rerun.")
     args = ap.parse_args()
 
     if args.list:
         names = [ln.strip() for ln in open(args.list) if ln.strip()
                  and not ln.strip().startswith("#")]
-        bins = [SW_DIR / f"build/litmus_{n}.bin" for n in names]
+        # Resolve list entries against the --bins glob's directory so
+        # --list works with build/, build/bins/single/, build/bins/dual/, etc.
+        bin_dir = Path(args.bins).parent.resolve()
+        bins = [bin_dir / f"litmus_{n}.bin" for n in names]
         missing = [b for b in bins if not b.exists()]
         if missing:
             print(f"missing binaries: {[b.name for b in missing]}",
@@ -238,8 +295,17 @@ def main() -> int:
         with out_path.open() as f:
             for row in csv.DictReader(f):
                 done.add(row["test"])
+    if args.skip_list:
+        with open(args.skip_list) as f:
+            for line in f:
+                name = line.strip()
+                if name and not name.startswith("#"):
+                    done.add(name)
+        print(f"[skip-list] {args.skip_list}: skipping "
+              f"{sum(1 for _ in open(args.skip_list) if _.strip() and not _.startswith('#'))} "
+              f"tests", flush=True)
 
-    fields = ["test", "status", "ticks", "duration_s", "log_dir"]
+    fields = ["test", "status", "ticks", "duration_s", "questa_exit", "log_dir"]
     f_out = out_path.open("a", newline="")
     writer = csv.DictWriter(f_out, fieldnames=fields)
     if write_header:
@@ -263,7 +329,8 @@ def main() -> int:
             row = run_one_test(bin_path, log_dir,
                                timeout_s=args.timeout,
                                max_ticks=args.max_ticks,
-                               debug_flags=args.debug_flags)
+                               debug_flags=args.debug_flags,
+                               debug_per_test=args.debug_per_test)
             writer.writerow(row)
             f_out.flush()
             print(summary_line(idx, len(bins), row), flush=True)
