@@ -343,6 +343,25 @@ def gen_thread_fn(p: LitmusTest, tid: int,
         expanded.extend(expand_pseudo(instr.strip()))
     asm_body = "\n".join(f'        "{ins}\\n\\t"' for ins in expanded)
 
+    # Any xN register touched by the asm body that is NOT a declared operand
+    # is a scratch temp (e.g. the `xor x11,..` / `add x14,..` chain in an
+    # rfi-addr test).  It MUST be listed as a clobber, otherwise GCC assumes
+    # the register survives the asm and may keep a live value there across the
+    # call — which the inlined litmus_barrier_wait does with its `1` constant,
+    # leading to a corrupted barrier increment and a livelock.
+    # `\bx(\d+)\b` does not match the `x` inside hex literals like `0x1f`
+    # (no word boundary between `0` and `x`).  x0 is hardwired zero and must
+    # never be clobbered.
+    declared_regs = {r for r, _ in name_to_init}
+    body_regs = set(re.findall(r"\bx(\d+)\b", "\n".join(expanded)))
+    clobbered = sorted(
+        (f"x{n}" for n in body_regs
+         if f"x{n}" not in declared_regs and n != "0"),
+        key=lambda s: int(s[1:]),
+    )
+    clobber_list = ", ".join(f'"{r}"' for r in clobbered)
+    clobber_list = (clobber_list + ', "memory"') if clobber_list else '"memory"'
+
     constraints_io = ", ".join(f'"+r"(reg_{r})' for r, _ in name_to_init)
     if not constraints_io:
         constraints_io = '"r"(0)'  # avoid empty constraint list (degenerate)
@@ -357,7 +376,7 @@ static void p{tid}(p{tid}_out_t *out)
 {asm_body}
         : {constraints_io}
         :
-        : "memory"
+        : {clobber_list}
     );
 {saves}
 }}
