@@ -286,6 +286,9 @@ int main(int argc, char **argv)
 
     if (hart == 0)
         litmus_barrier_init(&bar);
+    // Every hart waits until the barrier is fully initialised (closes the
+    // init race: no hart touches count/sense before init is globally visible).
+    litmus_barrier_init_wait(&bar);
 
     int64_t sense = 0;
     for (int i = 0; i < LITMUS_NRUNS; ++i) {{
