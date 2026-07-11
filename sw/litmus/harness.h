@@ -101,15 +101,22 @@ litmus_barrier_wait(litmus_barrier_t *b, int64_t local_sense)
     }
 }
 
-// tohost reporting (same convention as the rest of sw/ — defined in crt.S)
+// tohost / fromhost are defined in crt.S at fixed link addresses:
+//   tohost   → 0x80040000  → PASS signalling line
+//   fromhost → 0x80040040  → FAIL signalling line
+// gem5's VIPController watches for a REQ (ReadUnique) touching either
+// cache line and terminates immediately.  The signal is the *address*,
+// not the store value — no need to wait for the write to reach gem5.
 extern volatile uint64_t tohost;
+extern volatile uint64_t fromhost;
 
-// tohost convention matches sw/include/cosim.h (checked by VIPController):
-//   1                          → PASS
-//   0xFA11000000000000 | line  → FAIL (line = 0 for litmus, no source line)
 static inline void
 litmus_report(int failed)
 {
-    tohost = failed ? 0xFA11000000000000ULL : 1ULL;
+    if (failed) {
+        fromhost = 1ULL;   // touching 0x80040040 → gem5 exits FAIL
+    } else {
+        tohost   = 1ULL;   // touching 0x80040000 → gem5 exits PASS
+    }
     for (;;) { asm volatile("wfi"); }
 }

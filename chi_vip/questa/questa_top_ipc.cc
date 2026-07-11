@@ -138,6 +138,19 @@ void questa_top_ipc::clk_posedge()
     shm->questa_grant_ps.store(questa_ps_,
                                 std::memory_order_release);
 
+    // Test-completion signal from gem5.  When the DUT stores to tohost
+    // (0x80040000), gem5's VIPController publishes the value here and
+    // calls exitSimLoop.  Calling sc_stop() ends vsim's `run -all` so
+    // Questa exits cleanly in the same cycle.  See chi_ipc.hh for the
+    // sim_done placement + static_assert protecting shm layout.
+    if (uint64_t done = shm->sim_done.load(std::memory_order_acquire)) {
+        fprintf(stderr,
+            "[questa_top_ipc] sim_done=0x%016lx observed — sc_stop()\n",
+            (unsigned long)done);
+        sc_core::sc_stop();
+        return;
+    }
+
     if (dat_tx_cooldown_ > 0) --dat_tx_cooldown_;
 
     // SNP credits come from CVA6 (RN-F); pre-load on first active cycle in case

@@ -26,6 +26,7 @@
 
 #pragma once
 #include <atomic>
+#include <cstddef>   // offsetof
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -218,6 +219,23 @@ struct ChiShmLayout {
     ChiRingBuf<ChiIpcDat, 32> g2q_dat;
     ChiRingBuf<ChiIpcSnp, 64> g2q_snp;
 
+    // Test-completion signal.  Set by gem5's VIPController when the DUT
+    // stores TOHOST_PASS (=1) or a FAIL sentinel to the tohost address
+    // (0x80040000).  Questa polls this in clk_posedge and calls sc_stop()
+    // when non-zero so both sides terminate on a single tohost event
+    // without out-of-band process signalling.
+    //
+    // IMPORTANT: placed at the very END of the struct and WITHOUT
+    // `alignas(64)`.  Any field added ABOVE this line (or any alignment
+    // change to an existing field above) shifts the offsets of every
+    // ring buffer, silently corrupting shm-mapped memory on the side that
+    // wasn't fully rebuilt.  The static_asserts below pin the ring buffer
+    // offsets so the compiler catches such drift.
+    //   0                    = simulation still running
+    //   TOHOST_PASS  (1)     = DUT signalled PASS
+    //   0xFA11xxxxxxxxxxxx   = DUT signalled FAIL
+    std::atomic<uint64_t> sim_done{0};
+
     // Map RTL SrcID → q2g queue index.  Returns 0 if not found (safe fallback).
     int rnf_index(uint16_t src_id) const {
         uint32_t n = num_rnf.load(std::memory_order_acquire);
@@ -226,6 +244,16 @@ struct ChiShmLayout {
         return 0;
     }
 };
+
+// Pin ring-buffer offsets so any future struct change that shifts them
+// (accidental alignas, inserted field, changed padding) fails at compile time
+// on either side.  The two sides *must* agree byte-for-byte on these offsets.
+static_assert(offsetof(ChiShmLayout, q2g_req) == 192,
+              "ChiShmLayout::q2g_req offset drifted — gem5 and Questa will "
+              "read/write different bytes.  Add new fields at the END of the "
+              "struct, after sim_done.");
+static_assert(offsetof(ChiShmLayout, g2q_rsp) > offsetof(ChiShmLayout, q2g_dat),
+              "ring buffer ordering changed — see comment above.");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared memory handle — RAII wrapper for shm_open / mmap
