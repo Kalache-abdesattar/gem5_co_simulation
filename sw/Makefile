@@ -45,7 +45,7 @@ TRACES  := $(TESTS:%=build/%.trace)
 BM_TESTS  := bm_stream bm_vvadd bm_matmul bm_spmv bm_gemm bm_jacobi2d
 BM_CFLAGS := $(CFLAGS) -DPITON_NUMTILES=$(HARTS)
 
-.PHONY: all clean load disasm trace mt mt_trace mt_disasm bm bm_disasm
+.PHONY: all clean load disasm trace mt mt_trace mt_disasm bm bm_disasm ds ds_disasm app app_disasm
 
 all: $(BINS)
 
@@ -94,6 +94,46 @@ build/mt_%.trace: build/mt_%.elf
 	$(WHISPER) $(MT_WHISPER_OPTS) --logfile $@ -t $<
 
 build/mt_%.dis: build/mt_%.elf
+	$(OBJDUMP) -d -S $< > $@
+
+# ── Data-structure benchmark rules ───────────────────────────────────────────
+# Concurrent data structures (stack/queue/deque/bst) on the 2-hart runtime.
+# Built like mt_* (HARTS harts) but with tests/ds_*.c + include/conc.h.
+DS_TESTS  := ds_stack ds_queue ds_deque ds_bst ds_list ds_hash ds_skiplist \
+             ds_extbst ds_lazylist ds_rbtree ds_bsttk
+DS_CFLAGS := $(CFLAGS) -DPITON_NUMTILES=$(HARTS)
+
+ds: $(DS_TESTS:%=build/%.elf) $(DS_TESTS:%=build/%.bin)
+ds_disasm: $(DS_TESTS:%=build/%.dis)
+
+build/ds_%.elf: tests/ds_%.c $(INC)/conc.h $(CRT_SRC) $(INC)/link.ld | build
+	$(CC) $(DS_CFLAGS) $(LDFLAGS) -o $@ $< $(CRT_SRC) -lgcc
+
+build/ds_%.bin: build/ds_%.elf
+	$(OBJCOPY) -O binary $< $@
+	@size $<
+
+build/ds_%.dis: build/ds_%.elf
+	$(OBJDUMP) -d -S $< > $@
+
+# ── Application/kernel benchmarks ─────────────────────────────────────────────
+# Real application patterns the data-structure tests miss: ordered multi-lock
+# (bank), atomic-counter contention (histogram), barrier data-parallel (reduce).
+# Same 2-hart conc.h runtime as ds_*.
+APP_TESTS  := app_bank app_histogram app_reduce
+APP_CFLAGS := $(CFLAGS) -DPITON_NUMTILES=$(HARTS)
+
+app: $(APP_TESTS:%=build/%.elf) $(APP_TESTS:%=build/%.bin)
+app_disasm: $(APP_TESTS:%=build/%.dis)
+
+build/app_%.elf: tests/app_%.c $(INC)/conc.h $(CRT_SRC) $(INC)/link.ld | build
+	$(CC) $(APP_CFLAGS) $(LDFLAGS) -o $@ $< $(CRT_SRC) -lgcc
+
+build/app_%.bin: build/app_%.elf
+	$(OBJCOPY) -O binary $< $@
+	@size $<
+
+build/app_%.dis: build/app_%.elf
 	$(OBJDUMP) -d -S $< > $@
 
 # ── Benchmark rules ───────────────────────────────────────────────────────────
