@@ -86,6 +86,14 @@ parser.add_argument('--rtl-hnf-nid', type=int, default=None,
                          'when running with a single RN-F.')
 parser.add_argument('--max-ticks', type=int, default=10_000_000_000,
                     help='Stop after this many ticks (default 10 s at 1 THz)')
+parser.add_argument('--chi-data-width', type=int, default=64, choices=[16, 32, 64],
+                    help='CHI data-channel width in BYTES (16=128b, 32=256b, '
+                         '64=512b). Sets gem5 NoC_Params.data_width, which drives '
+                         'both the VIPController beat split (cacheline/width beats '
+                         'per line) and the network data-message serialization. '
+                         'The shm bridge always carries the full line regardless; '
+                         'only the gem5-side beat count/timing changes. '
+                         'Default 64 = single beat per 64B line (unchanged).')
 Options.addNoISAOptions(parser)
 Ruby.define_options(parser)
 args = parser.parse_args()
@@ -105,12 +113,20 @@ args.num_cpus = 0    # no CPUs
 # DDR timing is irrelevant for CHI protocol correctness testing.
 if not getattr(args, 'mem_type', None) or args.mem_type == 'DDR3_1600_8x8':
     args.mem_type = 'SimpleMemory'
-# Use 64-byte data channel so each cache line is sent in a single DAT beat.
-# Default is 32 bytes (2 beats per 64-byte line), which complicates co-sim.
-# Override via the chi_config mechanism.
+# CHI data-channel width (bytes). Default 64 = one DAT beat per 64B line (the
+# original co-sim setting). Smaller widths make the VIPController split each line
+# into cacheline/width beats (32→2, 16→4) on the gem5 side and the network
+# serialize proportionally — for data-width performance sweeps. The shm bridge
+# still transfers the whole line; only the gem5-side beat count/timing changes.
+if args.cacheline_size % args.chi_data_width != 0:
+    raise SystemExit(f"[chi_hnf_only] --chi-data-width {args.chi_data_width} must "
+                     f"divide cacheline size {args.cacheline_size}")
 import importlib as _il
 _chi = _il.import_module('ruby.CHI_config')
-_chi.NoC_Params.data_width = 64   # single-beat for 64-byte cache lines
+_chi.NoC_Params.data_width = args.chi_data_width
+print(f"[chi_hnf_only] CHI data width: {args.chi_data_width}B "
+      f"({args.chi_data_width * 8}b) → {args.cacheline_size // args.chi_data_width}"
+      f" beat(s)/line")
 if not getattr(args, 'num_dirs', None) or args.num_dirs < 1:
     args.num_dirs = 1
 if not getattr(args, 'num_l3caches', None) or args.num_l3caches < 1:
