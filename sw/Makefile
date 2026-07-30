@@ -100,7 +100,8 @@ build/mt_%.dis: build/mt_%.elf
 # Concurrent data structures (stack/queue/deque/bst) on the 2-hart runtime.
 # Built like mt_* (HARTS harts) but with tests/ds_*.c + include/conc.h.
 DS_TESTS  := ds_stack ds_queue ds_deque ds_bst ds_list ds_hash ds_skiplist \
-             ds_extbst ds_lazylist ds_rbtree ds_bsttk
+             ds_extbst ds_lazylist ds_rbtree ds_bsttk ds_harris ds_fraser \
+             ds_citrus
 DS_CFLAGS := $(CFLAGS) -DPITON_NUMTILES=$(HARTS)
 
 ds: $(DS_TESTS:%=build/%.elf) $(DS_TESTS:%=build/%.bin)
