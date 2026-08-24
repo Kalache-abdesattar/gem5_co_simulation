@@ -22,7 +22,9 @@
 #include "cosim.h"
 #include "conc.h"
 
+#ifndef N
 #define N 16                        /* inserts per hart (keep tiny for co-sim) */
+#endif
 #define B 8                         /* number of buckets                       */
 
 typedef struct hnode {

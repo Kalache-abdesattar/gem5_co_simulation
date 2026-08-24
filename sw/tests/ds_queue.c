@@ -26,7 +26,9 @@
 #include "cosim.h"
 #include "conc.h"
 
+#ifndef N
 #define N 16                         /* enqueues per hart (keep tiny for co-sim) */
+#endif
 
 typedef struct qnode { struct qnode *volatile next; uint64_t val; } qnode_t;
 

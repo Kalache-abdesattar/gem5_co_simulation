@@ -24,7 +24,9 @@
 #include "cosim.h"
 #include "conc.h"
 
+#ifndef N
 #define N 16                         /* pushes per hart (keep tiny for co-sim) */
+#endif
 
 typedef struct dnode {
     struct dnode *volatile prev;

@@ -24,7 +24,9 @@
 #include "cosim.h"
 #include "conc.h"
 
+#ifndef N
 #define N 16
+#endif
 #define KEY_MIN  (-1)
 #define KEY_MAX  0x7fffffffffffffffLL
 

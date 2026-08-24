@@ -20,7 +20,9 @@
 #include "cosim.h"
 #include "conc.h"
 
+#ifndef N
 #define N 16                        /* inserts per hart (keep tiny for co-sim) */
+#endif
 #define MAXLEVEL 8
 #define KEY_MAX  0x7fffffffffffffffLL
 

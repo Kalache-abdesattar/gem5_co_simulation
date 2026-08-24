@@ -102,7 +102,11 @@ build/mt_%.dis: build/mt_%.elf
 DS_TESTS  := ds_stack ds_queue ds_deque ds_bst ds_list ds_hash ds_skiplist \
              ds_extbst ds_lazylist ds_rbtree ds_bsttk ds_harris ds_fraser \
              ds_citrus
-DS_CFLAGS := $(CFLAGS) -DPITON_NUMTILES=$(HARTS)
+# Per-hart operation count for the ds_* benchmarks (pushes/inserts/etc.).
+# Longer runs = larger DS_N. Node pools auto-scale with N. Override on the
+# command line, e.g. `make ds DS_N=128`. Source default (guarded) is 16.
+DS_N      ?= 64
+DS_CFLAGS := $(CFLAGS) -DPITON_NUMTILES=$(HARTS) -DN=$(DS_N)
 
 ds: $(DS_TESTS:%=build/%.elf) $(DS_TESTS:%=build/%.bin)
 ds_disasm: $(DS_TESTS:%=build/%.dis)

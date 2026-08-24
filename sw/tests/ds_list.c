@@ -23,7 +23,9 @@
 #include "cosim.h"
 #include "conc.h"
 
+#ifndef N
 #define N 16                        /* inserts per hart (keep tiny for co-sim) */
+#endif
 #define KEY_MIN  (-1)               /* head sentinel key (< every real key)    */
 #define KEY_MAX  0x7fffffffffffffffLL /* tail sentinel key (> every real key)  */
 

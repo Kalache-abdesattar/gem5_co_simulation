@@ -26,7 +26,9 @@
 #include "cosim.h"
 #include "conc.h"
 
+#ifndef N
 #define N        16
+#endif
 #define INFINITY 0x40000000LL       /* > every real key */
 
 typedef struct node_t {

@@ -24,7 +24,9 @@
 #include "cosim.h"
 #include "conc.h"
 
+#ifndef N
 #define N 16                        /* inserts per hart (keep tiny for co-sim) */
+#endif
 #define HEAD_KEY 0x40000000LL       /* head routes: every real key < HEAD_KEY  */
 
 typedef struct node {

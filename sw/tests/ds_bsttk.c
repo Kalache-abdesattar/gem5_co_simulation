@@ -28,7 +28,9 @@
 #include "cosim.h"
 #include "conc.h"
 
+#ifndef N
 #define N 16
+#endif
 #define KEY_MIN  (-1)
 #define KEY_MAX  0x40000000LL       /* head/max sentinel key (> every real key) */
 #define TLN_REMOVED 0xFFFF0000FFFF0000ULL   /* both directions marked removed */

@@ -21,7 +21,9 @@
 #include "cosim.h"
 #include "conc.h"
 
+#ifndef N
 #define N 16
+#endif
 enum { RED = 0, BLACK = 1 };
 
 typedef struct node {
