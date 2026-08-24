@@ -25,9 +25,20 @@ static constexpr int CHI_SNP_ADDR_W   = CHI_ADDR_W;   // 44-bit IPC ADDR field
 // Logical processor ID width per node (typically 4).
 static constexpr int CHI_LPID_W       = 4;
 
-// Data bus width in bytes (16 / 32 / 64 for 128 / 256 / 512-bit buses).
+// IPC-side data width (bytes).  The SV adapter always assembles a full 64-byte
+// (512-bit) cache line into one IPC flit, so this stays 64 regardless of the RTL
+// beat width.
 static constexpr int CHI_DATA_W_BYTES = 64;
 static constexpr int CHI_DATA_W_BITS  = CHI_DATA_W_BYTES * 8;
+
+// RTL-side DAT bus width in BITS (128 / 256 / 512).  This is the *beat* width the
+// ICN speaks — it sets how many link-credits the ICN spends per 512-bit line and
+// therefore how many the bridge must return.  Set at build time to match the RTL
+// (-DCHI_DATA_BEAT_BITS=…); defaults to the 256-bit baseline (2 beats/line).
+#ifndef CHI_DATA_BEAT_BITS
+#  define CHI_DATA_BEAT_BITS 256
+#endif
+static constexpr int CHI_BEATS_PER_LINE = CHI_DATA_W_BITS / CHI_DATA_BEAT_BITS;
 
 // Initial L-credits issued on each TX channel at link activation.
 // Questa DUT must expect exactly this many credits before sending flits.

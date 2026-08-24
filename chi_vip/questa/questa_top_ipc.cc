@@ -229,16 +229,44 @@ void questa_top_ipc::clk_posedge()
 
     if (txdat_flitv.read()) {
         chi_ipc::ChiIpcDat msg = dat_flit_to_ipc(txdat_flit.read());
-        int idx = shm->rnf_index(msg.src_id);
-        if (!shm->q2g_dat[idx].push(msg))
-            fprintf(stderr, "[questa_top_ipc] q2g_dat[%d] full — dropped DAT src=%u!\n",
-                    idx, (unsigned)msg.src_id);
-        send_dat_crd = true;
-        // NCBWrData (opcode 0x3) is assembled from a single 256-bit RTL beat
-        // so the ICN spent only one credit.  All other DAT types use two beats;
-        // return the second credit next cycle.
-        if (msg.opcode != 0x3)
-            ++pending_extra_dat_crd_;
+        if (msg.opcode == 0) {
+            // DatLCrdReturn (opcode 0x00): credit-return flit, not real data —
+            // its DATA/BE lines carry stale bus values.  Mirror the REQ-channel
+            // handling: do NOT push to the ring buffer (gem5 would misread the
+            // stale payload as NCBWrData → addr 0 → panic) and do NOT return a
+            // credit or bump the extra-beat counter (that would inflate credits).
+            fprintf(stderr, "[ipc] Phase3 DatLCrdReturn src=%u @%lupc\n",
+                    (unsigned)msg.src_id, (unsigned long)questa_ps_);
+        } else {
+            int idx = shm->rnf_index(msg.src_id);
+            // DIAGNOSTIC: reveal the DUT DAT beat structure so we can size the
+            // reassembly for narrow (128/256-bit) RTL data buses.  be_bytes = how
+            // many bytes this flit actually drove; data_id encodes the beat's
+            // byte offset (CHI: offset = data_id*16).  For a full-line 512-bit
+            // flit be_bytes==64, data_id==0; a 256-bit bus yields be_bytes==32
+            // with data_id 0 then 2.
+            int be_bytes = 0;
+            for (int i = 0; i < CHI_DATA_W_BYTES; i++) be_bytes += (msg.be[i] != 0);
+            fprintf(stderr,
+                    "[ipc] Phase3 TXDAT op=0x%02x txn=%u src=%u data_id=%u"
+                    " cc_id=%u be_bytes=%d resp=0x%02x @%lupc\n",
+                    msg.opcode, msg.txn_id, (unsigned)msg.src_id,
+                    (unsigned)msg.data_id, (unsigned)msg.cc_id, be_bytes,
+                    msg.resp, (unsigned long)questa_ps_);
+            if (!shm->q2g_dat[idx].push(msg))
+                fprintf(stderr, "[questa_top_ipc] q2g_dat[%d] full — dropped DAT src=%u!\n",
+                        idx, (unsigned)msg.src_id);
+            send_dat_crd = true;
+            // Return one link-credit per RTL beat the ICN spent for this line.
+            // A full-line data flit spans CHI_BEATS_PER_LINE beats (= 512/RTL
+            // bus width: 512b→1, 256b→2, 128b→4); NCBWrData (opcode 0x3) is a
+            // single-beat partial write regardless.  send_dat_crd returns the
+            // first credit now; the rest are deferred one-per-cycle.  Hardcoding
+            // this to 2 only worked at 256b — it over-credits at 512b (deadlock)
+            // and starves at 128b.
+            if (msg.opcode != 0x3)
+                pending_extra_dat_crd_ += (CHI_BEATS_PER_LINE - 1);
+        }
     }
 
     txreq_lcrdv.write(send_req_crd);
@@ -307,7 +335,11 @@ void questa_top_ipc::clk_posedge()
         fprintf(stderr, "[ipc] Phase5 DAT STALLED: dat_out_q_.size=%zu dat_lcrd_=0 @%lupc\n",
                 dat_out_q_.size(), (unsigned long)questa_ps_);
     }
-    if (!dat_out_q_.empty() && dat_lcrd_ > 0 && dat_tx_cooldown_ == 0) {
+    // One IPC rxdat flit is split by the SV adapter into CHI_BEATS_PER_LINE RTL
+    // beats, each consuming one DUT rxdat credit — so require (and consume) that
+    // many credits, not 1.  Sending on dat_lcrd_>0 with only a 1-credit debit
+    // over-sends at >1 beat (512b→1 was fine; 128b→4 drops CompData beats).
+    if (!dat_out_q_.empty() && dat_lcrd_ >= CHI_BEATS_PER_LINE && dat_tx_cooldown_ == 0) {
         const DatFlit& nxt = dat_out_q_.front();
         using F2 = chi_flit::dat_f;
         // Populate DPI globals (bypasses SC→SV bridge truncation of sc_lv<637>).
@@ -321,17 +353,19 @@ void questa_top_ipc::clk_posedge()
                 nxt.range(F2::DATA_LO + i*8 + 7, F2::DATA_LO + i*8).to_uint());
         }
         fprintf(stderr, "[ipc] Phase5 rxdat_flitv=1 dat_lcrd_ %u→%u @%lupc\n",
-                dat_lcrd_, dat_lcrd_ - 1, (unsigned long)questa_ps_);
+                dat_lcrd_, dat_lcrd_ - CHI_BEATS_PER_LINE, (unsigned long)questa_ps_);
         rxdat_flitv.write(true);
         rxdat_flit.write(nxt);
         dat_out_q_.pop();
-        --dat_lcrd_;
-        // dat_rx_sm (always_ff) needs 3 SC cycles to drain: latch + FLIT0 + FLIT1.
-        dat_tx_cooldown_ = 3;
-        rxdat_flitpend.write(!dat_out_q_.empty() && dat_lcrd_ > 0);
+        dat_lcrd_ -= CHI_BEATS_PER_LINE;
+        // dat_rx_sm (always_ff) takes latch + CHI_BEATS_PER_LINE emit cycles to
+        // drain (512b→2, 256b→3, 128b→5).  Hardcoding 3 let the next IPC flit
+        // overwrite dat_rx_latch mid-emission at 4 beats, losing CompData tail.
+        dat_tx_cooldown_ = CHI_BEATS_PER_LINE + 1;
+        rxdat_flitpend.write(!dat_out_q_.empty() && dat_lcrd_ >= CHI_BEATS_PER_LINE);
     } else {
         rxdat_flitv.write(false);
-        rxdat_flitpend.write(!dat_out_q_.empty() && dat_lcrd_ > 0 && dat_tx_cooldown_ == 0);
+        rxdat_flitpend.write(!dat_out_q_.empty() && dat_lcrd_ >= CHI_BEATS_PER_LINE && dat_tx_cooldown_ == 0);
     }
 
     // RXSNP

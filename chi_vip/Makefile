@@ -1,7 +1,7 @@
 GEM5_SRC  := $(CURDIR)/gem5_src
 SHIM      := $(CURDIR)/chi_shim
-LIBSOC    ?= $(HOME)/scc_install
-SC_ROOT   ?= $(HOME)/systemc
+LIBSOC    ?= $(HOME)/fedora/scc_install_questa
+SC_ROOT   ?= $(HOME)/fedora/systemc
 
 CXX       := g++
 CXXFLAGS  := -std=c++17 -O2 -fPIC -Wall -Wno-unused-variable \
@@ -209,7 +209,7 @@ clean:
 # That change is persistent (until Questa is reinstalled or ld.bak is restored).
 # Run 'make questa_build_restore_ld' to undo.
 
-QUESTA ?= $(HOME)/questa24/questasim
+QUESTA ?= $(HOME)/fedora/questa_24/questasim
 QUESTA_LD := $(QUESTA)/gcc-10.3.0-linux_x86_64/libexec/gcc/x86_64-pc-linux-gnu/10.3.0/ld
 # Questa's bundled g++ 10.3.0: produces GLIBCXX_3.4.26-compatible .so files
 # that vsim can load (Questa's bundled libstdc++ tops out at GLIBCXX_3.4.28).
@@ -221,7 +221,12 @@ QUESTA_CXX := $(QUESTA)/gcc-10.3.0-linux_x86_64/bin/g++
 LIBSTDCXX ?= $(realpath $(shell $(CC) -print-file-name=libstdc++.so.6))
 QUESTA_BUILD := $(CURDIR)/questa_build
 QUESTA_OBJDIR := $(QUESTA_BUILD)/work/_sc/linux_x86_64_gcc-10.3.0
+# RTL DAT bus width in bits (128/256/512). MUST match the SV tb's
+# CHIE_DATA_WIDTH_PARAM: it sets how many link-credits the bridge returns per
+# 512-bit line (CHI_BEATS_PER_LINE = 512/CHI_DW). Default 256 = 2 beats/line.
+CHI_DW ?= 256
 SCCOM_FLAGS := -suppress sccom-94 -O2 -std=c++17 \
+               -DCHI_DATA_BEAT_BITS=$(CHI_DW) \
                -I$(CURDIR)/questa \
                -I$(CURDIR)/ipc \
                -I$(LIBSOC)/include
@@ -372,9 +377,10 @@ questa_build_cosim: $(QUESTA_BUILD)/work/systemc_sv.so $(QUESTA_BUILD)/work/tb_g
 # Rebuilds the SC co-sim library in the cva6-RNF work directory.
 # Must be re-run whenever chi_vip SC sources change or work/ is cleaned.
 # RNF_WORK must point to the cva6-RNF Questa work library directory.
-RNF_WORK ?= $(abspath $(CURDIR)/../../chi-rnf/cva6-RNF/work)
+RNF_WORK ?= $(abspath $(CURDIR)/../../work/chi-rnf/cva6-RNF/work)
 RNF_OBJDIR = $(RNF_WORK)/_sc/linux_x86_64_gcc-10.3.0
 RNF_SCCOM  = PATH=$(QUESTA)/bin:$$PATH sccom -suppress sccom-94 -O2 -std=c++17 \
+             -DCHI_DATA_BEAT_BITS=$(CHI_DW) \
              -work $(RNF_WORK) \
              -I$(CURDIR)/questa -I$(CURDIR)/ipc -I$(LIBSOC)/include
 
