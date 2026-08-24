@@ -100,12 +100,14 @@ SC_MODULE(questa_top_ipc)
     ~questa_top_ipc() = default;
 
     void start_of_simulation() override;
-    void clk_posedge();
+    void clk_thread();          // SC_THREAD: per-cycle body + quantum barrier
+    void clk_posedge_impl();    // per-cycle body (phases 1-5, reset, credit init)
 
   private:
     chi_ipc::ChiShmHandle shm_;
     uint64_t              cycle_ps_;
-    uint64_t              questa_ps_{0};  // running questa time in ps
+    uint64_t              questa_ps_{0};      // running questa time in ps
+    uint64_t              quantum_ps_{10000}; // read from shm->quantum_ps after attach
 
     // Outbound flit queues (g2q channel → DUT)
     std::queue<RspFlit> rsp_out_q_;

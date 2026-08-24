@@ -65,7 +65,7 @@ questa_top_ipc::questa_top_ipc(sc_module_name n,
     , shm_(shm_name, /*create=*/false)  // questa side attaches; gem5 creates
     , cycle_ps_(cycle_ps)
 {
-    SC_METHOD(clk_posedge);
+    SC_THREAD(clk_thread);
     sensitive << clk.pos();
 }
 
@@ -83,7 +83,14 @@ void questa_top_ipc::start_of_simulation()
             fprintf(stderr, "[questa_top_ipc] still waiting (%ds)...\n",
                     retries / 100);
     }
-    fprintf(stderr, "[questa_top_ipc] attached to shm, starting simulation\n");
+    // Read the co-sim time-quantum published by gem5's VIPController-0.  Falls
+    // back to the compiled default (10000 ps) if gem5 hasn't written it yet.
+    if (auto* shm = shm_.layout()) {
+        uint64_t q = shm->quantum_ps.load(std::memory_order_relaxed);
+        if (q > 0) quantum_ps_ = q;
+    }
+    fprintf(stderr, "[questa_top_ipc] attached to shm, starting simulation"
+            " (quantum_ps_=%lu)\n", (unsigned long)quantum_ps_);
     // Layout probe: must match the gem5-side "[VIP:layout]" line.  A mismatch
     // means the two sides disagree on the ChiIpcDat byte layout, and any
     // field beyond the first mismatched offset will be read from the wrong
@@ -98,9 +105,42 @@ void questa_top_ipc::start_of_simulation()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Posedge handler
+// SC_THREAD entry point — runs the per-cycle body on every posedge, then at
+// each quantum boundary publishes our progress and spins (yielding to the SC
+// kernel, without advancing the RTL clock) until gem5 is within one quantum.
+// Deadlock-free: each side only reads the *other* side's counter and advances
+// freely within its own quantum.
 // ─────────────────────────────────────────────────────────────────────────────
-void questa_top_ipc::clk_posedge()
+void questa_top_ipc::clk_thread()
+{
+    while (true) {
+        wait(clk.posedge_event());
+        clk_posedge_impl();
+
+        if (questa_ps_ > 0 && (questa_ps_ % quantum_ps_) == 0) {
+            auto* shm = shm_.layout();
+            if (!shm) continue;
+            // Pick up a runtime quantum change (gem5 owns quantum_ps).
+            uint64_t q = shm->quantum_ps.load(std::memory_order_relaxed);
+            if (q > 0) quantum_ps_ = q;
+
+            shm->questa_quantum_end_ps.store(questa_ps_,
+                                             std::memory_order_release);
+            // Block until gem5's published quantum end is within one quantum of
+            // us.  wait(1, SC_PS) yields to the SC kernel without advancing the
+            // RTL clock, so DUT state is preserved while we wait.
+            while (shm->gem5_quantum_end_ps.load(std::memory_order_acquire)
+                       + quantum_ps_ < questa_ps_) {
+                wait(1, sc_core::SC_PS);
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-cycle body (phases 1-5, reset, credit init) — called from clk_thread
+// ─────────────────────────────────────────────────────────────────────────────
+void questa_top_ipc::clk_posedge_impl()
 {
     if (!shm_.valid()) {
         // Shouldn't happen after start_of_simulation, but be safe.

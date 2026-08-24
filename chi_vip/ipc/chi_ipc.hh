@@ -236,6 +236,18 @@ struct ChiShmLayout {
     //   0xFA11xxxxxxxxxxxx   = DUT signalled FAIL
     std::atomic<uint64_t> sim_done{0};
 
+    // Time-quantum synchronization barriers.  Placed at the END (after
+    // sim_done) so they do NOT shift the ring-buffer offsets pinned by the
+    // static_asserts below.  Each side advances freely within one quantum, then
+    // waits until the other has published a *_quantum_end_ps within one quantum
+    // of its own.  gem5 writes gem5_quantum_end_ps + quantum_ps (VIPController-0
+    // only); Questa writes questa_quantum_end_ps.  quantum_ps default = 10 CHI
+    // cycles (10000 ps).  alignas(64) keeps each on its own cache line so the
+    // two processes don't false-share while spinning.
+    alignas(64) std::atomic<uint64_t> gem5_quantum_end_ps{0};
+    alignas(64) std::atomic<uint64_t> questa_quantum_end_ps{0};
+    alignas(64) std::atomic<uint64_t> quantum_ps{10000};
+
     // Map RTL SrcID → q2g queue index.  Returns 0 if not found (safe fallback).
     int rnf_index(uint16_t src_id) const {
         uint32_t n = num_rnf.load(std::memory_order_acquire);
