@@ -129,12 +129,21 @@ void questa_top_ipc::clk_thread()
 
             shm->questa_quantum_end_ps.store(questa_ps_,
                                              std::memory_order_release);
-            // Block until gem5's published quantum end is within one quantum of
-            // us.  wait(1, SC_PS) yields to the SC kernel without advancing the
-            // RTL clock, so DUT state is preserved while we wait.
-            while (shm->gem5_quantum_end_ps.load(std::memory_order_acquire)
-                       + quantum_ps_ < questa_ps_) {
-                wait(1, sc_core::SC_PS);
+            // Wake gem5 if it is blocked waiting on Questa's progress.
+            shm->questa_seq.fetch_add(1, std::memory_order_release);
+            chi_ipc::futex_wake(&shm->questa_seq);
+            // Block until gem5's quantum end is within one quantum of us.
+            // futex_wait blocks this SC kernel thread, which freezes the whole
+            // vsim process — so the RTL clock genuinely does NOT advance while
+            // we wait (unlike wait(1,SC_PS), which advanced SC time and let the
+            // RTL free-run).  100 ms timeout + sim_done guard avoid a hang if
+            // gem5 exits mid-quantum.
+            while (shm->sim_done.load(std::memory_order_acquire) == 0) {
+                uint32_t s = shm->gem5_seq.load(std::memory_order_acquire);
+                if (shm->gem5_quantum_end_ps.load(std::memory_order_acquire)
+                        + quantum_ps_ >= questa_ps_)
+                    break;
+                chi_ipc::futex_wait(&shm->gem5_seq, s);
             }
         }
     }

@@ -30,8 +30,34 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <climits>        // INT_MAX
+#include <ctime>          // timespec
+#include <linux/futex.h>  // FUTEX_WAIT / FUTEX_WAKE
+#include <sys/syscall.h>  // SYS_futex
+#include <unistd.h>       // syscall
 
 namespace gem5 { namespace ruby { namespace chi_ipc {
+
+// ── Cross-process futex helpers for the time-quantum barrier ─────────────────
+// The seq words live in the shared shm mapping, so a *non-private* futex is
+// required (FUTEX_WAIT/WAKE without FUTEX_PRIVATE_FLAG) — private futexes key on
+// the local address space and would never match across the two processes.
+inline void futex_wake(std::atomic<uint32_t>* w)
+{
+    syscall(SYS_futex, reinterpret_cast<uint32_t*>(w), FUTEX_WAKE,
+            INT_MAX, nullptr, nullptr, 0);
+}
+
+// Block until *w != expected or WAKEd, whichever first; a timeout bounds the
+// wait so a dead/finished peer can't hang us (caller re-checks its condition).
+inline void futex_wait(std::atomic<uint32_t>* w, uint32_t expected,
+                       long timeout_ns = 100'000'000L /* 100 ms */)
+{
+    struct timespec ts { timeout_ns / 1'000'000'000L,
+                         timeout_ns % 1'000'000'000L };
+    syscall(SYS_futex, reinterpret_cast<uint32_t*>(w), FUTEX_WAIT,
+            expected, &ts, nullptr, 0);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Wire-format structs.  All opcode fields carry raw SCC / CHI-spec integers.
@@ -247,6 +273,14 @@ struct ChiShmLayout {
     alignas(64) std::atomic<uint64_t> gem5_quantum_end_ps{0};
     alignas(64) std::atomic<uint64_t> questa_quantum_end_ps{0};
     alignas(64) std::atomic<uint64_t> quantum_ps{10000};
+
+    // Futex wake-words for the barrier (replace the usleep/wait poll so tight
+    // quanta don't pay the polling-granularity stall).  Each side bumps its own
+    // seq and FUTEX_WAKEs it right after publishing its *_quantum_end_ps; the
+    // other side FUTEX_WAITs on it.  32-bit as the futex ABI requires; the shm
+    // mapping is shared across processes so a non-private futex works on it.
+    alignas(64) std::atomic<uint32_t> gem5_seq{0};
+    alignas(64) std::atomic<uint32_t> questa_seq{0};
 
     // Map RTL SrcID → q2g queue index.  Returns 0 if not found (safe fallback).
     int rnf_index(uint16_t src_id) const {
