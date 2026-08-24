@@ -86,6 +86,10 @@ parser.add_argument('--rtl-hnf-nid', type=int, default=None,
                          'when running with a single RN-F.')
 parser.add_argument('--max-ticks', type=int, default=10_000_000_000,
                     help='Stop after this many ticks (default 10 s at 1 THz)')
+parser.add_argument('--quantum-ps', type=int, default=10000,
+                    help='Co-sim time-quantum in ps (default 10000 = 10 CHI '
+                         'cycles). Neither gem5 nor Questa runs more than one '
+                         'quantum ahead. 0 = loose mode (no barrier).')
 parser.add_argument('--chi-data-width', type=int, default=64, choices=[16, 32, 64],
                     help='CHI data-channel width in BYTES (16=128b, 32=256b, '
                          '64=512b). Sets gem5 NoC_Params.data_width, which drives '
@@ -176,6 +180,7 @@ print(f"[chi_hnf_only] Boot ROM: {_bootrom_size} bytes @ 0x{_BOOTROM_BASE:x} ({_
 
 system._vip_shm_names   = [args.shm_name] * args.num_rnf
 system._vip_rnf_src_ids = _rnf_src_ids
+system._vip_quantum_ps  = args.quantum_ps
 if args.rtl_hnf_nid is not None:
     system._vip_rtl_hnf_nid = args.rtl_hnf_nid
 print(f"[chi_hnf_only] VIPController shm='{args.shm_name}'"

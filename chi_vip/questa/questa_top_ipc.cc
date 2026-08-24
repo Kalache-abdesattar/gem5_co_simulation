@@ -86,8 +86,10 @@ void questa_top_ipc::start_of_simulation()
     // Read the co-sim time-quantum published by gem5's VIPController-0.  Falls
     // back to the compiled default (10000 ps) if gem5 hasn't written it yet.
     if (auto* shm = shm_.layout()) {
-        uint64_t q = shm->quantum_ps.load(std::memory_order_relaxed);
-        if (q > 0) quantum_ps_ = q;
+        // gem5 has published quantum_ps by now (written in VIPController-0 init,
+        // long before Questa finishes elaboration).  Accept 0 too: 0 = loose
+        // mode (barrier disabled).
+        quantum_ps_ = shm->quantum_ps.load(std::memory_order_relaxed);
     }
     fprintf(stderr, "[questa_top_ipc] attached to shm, starting simulation"
             " (quantum_ps_=%lu)\n", (unsigned long)quantum_ps_);
@@ -117,7 +119,8 @@ void questa_top_ipc::clk_thread()
         wait(clk.posedge_event());
         clk_posedge_impl();
 
-        if (questa_ps_ > 0 && (questa_ps_ % quantum_ps_) == 0) {
+        if (quantum_ps_ > 0 && questa_ps_ > 0 &&
+            (questa_ps_ % quantum_ps_) == 0) {  // quantum_ps_==0 → loose, no barrier
             auto* shm = shm_.layout();
             if (!shm) continue;
             // Pick up a runtime quantum change (gem5 owns quantum_ps).

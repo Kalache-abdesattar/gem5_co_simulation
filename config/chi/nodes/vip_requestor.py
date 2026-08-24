@@ -123,7 +123,7 @@ if _HAS_VIP_CONTROLLER:
         def __init__(self, network: RubyNetwork, cache_line_size: int,
                      ruby_system, shm_name: str = "/chi_vip_0",
                      rnf_index: int = 0, rtl_src_id: int = 0,
-                     rtl_hnf_nid: int = 0,
+                     rtl_hnf_nid: int = 0, quantum_ps: int = 10000,
                      num_tbes: int = 256, num_snoop_tbes: int = 64):
             super().__init__()
 
@@ -137,6 +137,7 @@ if _HAS_VIP_CONTROLLER:
             self.rnf_index   = rnf_index
             self.rtl_src_id  = rtl_src_id
             self.rtl_hnf_nid = rtl_hnf_nid
+            self.quantum_ps  = quantum_ps  # co-sim time-quantum (0 = loose/no barrier)
             self.ruby_system = ruby_system
 
             # CHIGenericController needs data_channel_size.
