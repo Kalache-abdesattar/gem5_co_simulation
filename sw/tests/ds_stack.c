@@ -26,7 +26,7 @@
 
 typedef struct node { struct node *next; uint64_t val; } node_t;
 
-DEFINE_POOL(nodes, node_t, 2 * N);
+DEFINE_POOL(nodes, node_t, NHARTS * N);
 
 static node_t   *volatile head = 0;
 static spinlock_t lock = { 0 };

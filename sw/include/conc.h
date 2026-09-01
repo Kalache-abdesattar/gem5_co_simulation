@@ -16,7 +16,11 @@
 #include <stddef.h>
 
 #ifndef NHARTS
-#  define NHARTS 2
+#  ifdef PITON_NUMTILES
+#    define NHARTS PITON_NUMTILES   /* track the core count the build was told (HARTS) */
+#  else
+#    define NHARTS 2
+#  endif
 #endif
 
 static inline int hartid(void)
