@@ -43,6 +43,65 @@ acts as one or more **RN-F (Requester Node — Full)** agents (CPU/cache cluster
 
 ---
 
+## Two transports
+
+CHI flits cross the gem5/Questa boundary one of two ways. Both are built from
+the same `CHI_VIP_Controller`; they differ only in how the flits travel.
+
+| | **TLM2, in-process** | **Shared memory, out-of-process** |
+|---|---|---|
+| gem5 and vsim are | one process (`libchi_vip.so` loaded by vsim) | two processes |
+| flits travel over | TLM2 sockets | POSIX shm ring buffers |
+| SV wrapper | `questa_top_wrap.sv` | `questa_top_ipc_wrap.sv` |
+| SC top | `questa_cosim_top.cc` | `questa_cosim_top_ipc.cc` |
+| testbench | `tb_chi_vip.sv` | `tb_ipc_vsim.sv`, `tb_gem5_cosim.sv` |
+| build target | `make questa_build_sv` | `make questa_build`, `make questa_build_cosim` |
+| use it for | pure SystemC/TLM work, unit tests | **the normal path** — a live gem5 driving real RTL |
+
+### The shared-memory transport
+
+`ipc/chi_ipc.hh` defines `ChiShmLayout`, placed at the start of a named POSIX
+shm segment (`--shm-name`, default `/chi_vip_0`). It holds
+single-producer/single-consumer ring buffers, one set per direction:
+
+```
+  DUT -> HN-F   (per requester, [MAX_RNF] = 8)   HN-F -> DUT   (single, routed by tgt_id)
+  q2g_req[r]   REQ                               g2q_rsp   RSP
+  q2g_rsp[r]   RSP   e.g. CompAck / SnpResp      g2q_dat   DAT   e.g. CompData
+  q2g_dat[r]   DAT   e.g. CopyBackWrData         g2q_snp   SNP
+```
+
+The inbound direction is an array because several RN-Fs push concurrently and
+each needs its own producer slot (`--num-rnf`, up to `MAX_RNF` = 8). The
+outbound direction needs only one ring per channel: gem5 is the single producer
+and the `tgt_id` field in each entry tells `questa_top_ipc` which RN-F to
+deliver to.
+
+Each ring has power-of-two capacity and monotonically increasing 32-bit
+indices, so the slot is just `index & mask` and no lock is needed: one side
+only writes the head, the other only the tail.
+
+> `std::atomic<>` in mmap'd shared memory is strictly a C++ extension. It is
+> relied on here because on x86/ARM Linux with glibc these operations compile
+> to plain hardware instructions — see the note at the top of `chi_ipc.hh`.
+
+### Keeping the two simulators in step
+
+gem5 is event-driven, Questa is clocked, so the segment also carries a
+**time-quantum barrier**: `gem5_quantum_end_ps` and `questa_quantum_end_ps`.
+Each side runs freely until it reaches its published quantum end, then blocks
+on a **futex** until the other side has published a mark within one quantum of
+its own. gem5 advances `gem5_quantum_end_ps` by `quantum_ps` (done by
+VIPController 0 only, when several exist).
+
+The quantum defaults to **10,000 ps** (10 ns ≈ 10 CHI clocks) and is set with
+`--quantum-ps` on the gem5 side. Larger is faster but allows the two sides to
+drift further apart within a quantum; smaller is tighter and slower. Passing
+`0` disables the barrier (loose mode), which is only useful for debugging — the
+two simulators then free-run relative to each other.
+
+---
+
 ## Repository Layout
 
 ```
@@ -53,15 +112,28 @@ chi_vip/
 │   ├── libchi_vip.so                # TLM2 bridge shared library
 │   ├── libchi_questa.so             # questa_top adapter (links libchi_vip.so)
 │   └── smoke                        # minimal self-test executable
+├── ipc/                             # shared-memory transport (gem5 <-> vsim)
+│   ├── chi_ipc.hh                   # ChiShmLayout: 6 SPSC rings + quantum counters
+│   └── chi_ipc.cc                   # attach/create, futex barrier helpers
 ├── questa/                          # Questa co-simulation layer (see questa/README.md)
 │   ├── README.md                    # questa layer integration guide
 │   ├── chi_flit_cfg.hh              # CHI interface parameters (widths, INIT_LCRD)
 │   ├── chi_flit_pack.hh             # field offsets + inline pack/unpack helpers
-│   ├── questa_top.hh                # SC_MODULE declaration (22 pin-level ports)
-│   ├── questa_top.cc                # clock method, L-credit tracking, TLM2 callbacks
-│   ├── questa_cosim_top.cc          # sc_main for Questa vsim / standalone smoke test
-│   ├── questa_top_wrap.sv           # flat SV wrapper module + chi_vip_bind
-│   └── tb_chi_vip.sv                # self-checking SV testbench (11 tests)
+│   ├── questa_top.hh/.cc            # TLM2 path: SC_MODULE, clock method,
+│   │                                #   L-credit tracking, TLM2 callbacks
+│   ├── questa_top_ipc.hh/.cc        # IPC path: same pin interface, but flits go
+│   │                                #   to/from the shm rings instead of TLM2
+│   ├── questa_top_ipc_vsim.hh/.cc   # vsim-side variant (SV-driven clock)
+│   ├── questa_cosim_top.cc          # sc_main, TLM2 path
+│   ├── questa_cosim_top_ipc.cc      # sc_main, IPC path
+│   ├── questa_sc_main.cc            # sc_main used by the vsim builds
+│   ├── questa_top_wrap.sv           # flat SV wrapper + chi_vip_bind (TLM2 path)
+│   ├── questa_top_ipc_wrap.sv       # flat SV wrapper (IPC path) -- the usual one
+│   ├── questa_top_ipc_stub.sv       # stub for elaborating without the DUT
+│   ├── tb_chi_vip.sv                # self-checking SV testbench (TLM2 path)
+│   ├── tb_ipc_vsim.sv               # self-checking SV testbench (IPC path)
+│   ├── tb_gem5_cosim.sv             # drives a live gem5 over the shm rings
+│   └── check_sv.py                  # SV lint/consistency helper
 ├── sc/
 │   ├── chi_vip_controller.hh        # CHI_VIP_Controller class declaration
 │   └── chi_vip_controller.cc        # full implementation + opcode tables
@@ -109,6 +181,8 @@ chi_vip/
     ├── test_concurrent.cc           # concurrent pending_dat_ assembly, TxnID reuse
     ├── test_channels.cc             # simultaneous multi-channel activity, cross-channel isolation
     ├── test_edge_cases.cc           # boundary conditions, error handling, opcode mapping
+    ├── test_ipc.cc                  # shm rings, wrap-around, quantum barrier [STALE]
+    ├── test_questa_top_ipc.cc       # questa_top_ipc over the rings        [STALE]
     └── README.md                    # test architecture and per-suite documentation
 ```
 
@@ -121,6 +195,35 @@ chi_vip/
 | SystemC (standalone) | 2.3.4 | `SC_ROOT` | `make` unit-test builds (`libchi_vip.so`, all `build/test_*`) |
 | SCC (Minres SystemC Components) | — | `LIBSOC` | compile-time headers (`chi/chi_tlm.h`) for `chi_vip_controller.cc` and sccom; `libscc-shared.so` at runtime for TLM path |
 | Questa Sim-64 | 2024.1+ | `QUESTA` | `make questa_build` / `make rnf_build_sc` — provides `sccom`, `vlog`, `vsim`, and the bundled `libsystemc_cpp17.a` |
+| Questa's bundled GCC | gcc-10.3.0 | `QUESTA_GCC` | the `questa_*` targets link with it, not system g++ (see below) |
+
+**Nothing in this tree hardcodes an absolute path.** The variables above are
+overridable; their defaults are only a convenience for the original development
+machine. Set them on the command line or in the environment:
+
+```bash
+make              SC_ROOT=/path/to/systemc LIBSOC=/path/to/scc_install
+make questa_build QUESTA=/path/to/questasim
+```
+
+`make check-deps` validates all of them and names the one that is wrong, rather
+than letting it surface later as `fatal error: systemc.h: No such file`:
+
+```bash
+$ make check-deps
+all dependencies OK:
+  SC_ROOT    = /path/to/systemc
+  LIBSOC     = /path/to/scc_install
+  QUESTA     = /path/to/questasim
+  QUESTA_GCC = gcc-10.3.0-linux_x86_64
+```
+
+`QUESTA_GCC` selects which of Questa's bundled compilers to use. Questa ships
+several (commonly `gcc-10.3.0` and `gcc-7.4.0`); 10.3.0 is the default
+deliberately, not merely because it is newest — it emits
+GLIBCXX_3.4.26-compatible shared objects that `vsim` can load, whereas system
+g++ emits GLIBCXX_3.4.30 symbols that Questa's bundled libstdc++ cannot
+resolve. `make check-questa` lists what your installation actually has.
 
 SCC provides `chi/chi_tlm.h` which defines the CHI TLM2 extensions:
 - `chi::chi_ctrl_extension` — REQ and RSP channels
@@ -233,7 +336,29 @@ that `vsim` loads for the IPC co-simulation bridge.
 
 On first run the target patches Questa's bundled `ld` with a wrapper that
 calls the system linker (required on Fedora 40+ / Ubuntu 24+ due to RELR
-section incompatibility). Undo with `make questa_build_restore_ld`.
+section incompatibility). That patch is applied by `make questa_ld_patch`,
+which `questa_build` invokes for you; undo it with
+`make questa_build_restore_ld`.
+
+The full set of Questa-side targets:
+
+| Target | Produces | For |
+|--------|----------|-----|
+| `questa_build` | `work/systemc.so`, `work/questa_top_ipc_wrap` | the IPC bridge — the usual build |
+| `questa_build_cosim` | the above plus `work/tb_gem5_cosim` | driving a live gem5 over the shm rings |
+| `questa_build_sv` | `work/systemc_sv.so`, `work/tb_ipc_vsim` | the self-contained SV testbench (no gem5 process) |
+| `questa_ld_patch` | — | patch Questa's bundled `ld` (invoked automatically) |
+| `questa_build_restore_ld` | — | revert that patch |
+| `rnf_build_sc` | SC objects inside the CVA6 RN-F work library | after editing `questa/questa_top_ipc*.cc` or `ipc/chi_ipc.cc` |
+| `cosim-help` | — | prints the co-sim build targets and the gem5 SCons line |
+| `check-deps` | — | validate `SC_ROOT` / `LIBSOC` / `QUESTA` / `QUESTA_GCC` (also `check-sc`, `check-scc`, `check-questa` individually) |
+
+`CHI_DW` sets the RTL DAT bus width in bits (128/256/512, default 256) and must
+match the SV testbench's `CHIE_DATA_WIDTH_PARAM`:
+
+```bash
+make questa_build CHI_DW=512
+```
 
 ### 5. CVA6 RN-F co-simulation SC build (rnf_build_sc)
 
@@ -271,6 +396,48 @@ scons build/X86_CHI/gem5.opt \
 
 The VIPController does not depend on SystemC or SCC — it is a pure C++
 IPC bridge using POSIX shared memory (`-lrt`).
+
+---
+
+## Test suite status
+
+`make run` builds and runs the suites in `test/`. Measured state:
+
+| | |
+|---|---|
+| suites in tree | 16 |
+| build and run | 14 |
+| checks passing | **623** |
+| checks failing | **0** |
+| suites that do not compile | **2** |
+
+**`make run` currently stops before completing**, because two suites no longer
+build:
+
+* `test_ipc.cc` and `test_questa_top_ipc.cc` still treat the IPC rings as
+  single objects (`lay->q2g_req.push(...)`). `ipc/chi_ipc.hh` has since grown
+  per-requester rings for `--num-rnf` — `q2g_req`/`q2g_rsp`/`q2g_dat` are now
+  arrays of `MAX_RNF` (8) — so these need an index (`q2g_req[rnf]`). 55
+  compile errors between them, all of this one kind.
+
+To run everything that does work, build the suites individually:
+
+```bash
+for t in channels concurrent credit dat_types edge_cases multibeat opcode_maps \
+         pack_unpack questa_cosim questa_top req_types rsp_types snp_types wakeup; do
+    make build/test_$t && LD_LIBRARY_PATH=./build:$(SC_ROOT)/build/src ./build/test_$t
+done
+```
+
+The working set passes cleanly. One check in `test/test_questa_top.cc` was
+asserting that `DoNotDataPull` round-trips through `pack_snp`; it never can,
+because `chi_flit_pack.hh` reserves bit 94 as zero ("not wired to RTL, keeps
+TGTID aligned"). That check was wrong rather than the bridge, and now asserts
+the reserved-zero behaviour instead.
+
+> The per-suite check counts in [`test/README.md`](test/README.md) predate
+> these changes and under-count the suite (they sum to 416 against the 623
+> that actually run). Treat the table above as current.
 
 ---
 
@@ -600,13 +767,63 @@ Alternatively, if using Questa's own SystemC installation, replace
 
 ### 4. Run the co-simulation
 
+Two processes, started in either order — whichever attaches to the shared
+memory segment second finds it already waiting.
+
+```bash
+# Terminal 1 — gem5 as a bare HN-F: no CPUs, driven entirely by the DUT
+gem5/build/X86_CHI/gem5.opt config/chi/chi_hnf_only.py \
+    --shm-name /chi_vip_0 --quantum-ps 10000 --max-ticks 10000000000
+
+# Terminal 2 — Questa with the RTL DUT plus the bridge
+cd chi_vip
+vsim -c -lib questa_build/work questa_top_ipc_wrap tb_gem5_cosim
+```
+
+gem5 terminates when the DUT writes the sentinel address `0xDEAD_BEEF_0000`
+in a `ReadNoSnp`, or when `--max-ticks` is reached.
+
+Useful knobs on `chi_hnf_only.py`:
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--shm-name` | `/chi_vip_0` | POSIX shm segment both sides attach to |
+| `--quantum-ps` | `10000` | time-quantum in ps; `0` = loose mode, no barrier |
+| `--max-ticks` | `10000000000` | safety stop if the DUT never sends the sentinel |
+| `--num-rnf` | `1` | how many requester nodes the HN-F expects |
+| `--rnf-src-ids` | derived | explicit CHI source IDs for the RN-Fs |
+| `--rtl-hnf-nid` | derived | node ID the RTL expects the HN-F to have |
+| `--chi-data-width` | `64` | DAT path width in **bytes** (16/32/64 → 128/256/512 bit) |
+
+`--chi-data-width` must agree with the RTL's `CHIE_DATA_WIDTH_PARAM` and with
+the `CHI_DW` the bridge was built with (`make questa_build CHI_DW=256`), since
+it determines how many link credits the bridge returns per 512-bit line.
+
+#### Driving the same HN-F from gem5's own CPUs
+
+Before involving any RTL it is worth checking the hierarchy works on its own.
+`config/chi/chi_vip_se.py` runs an ordinary SE-mode workload on CHI and adds
+the VIPController node only when asked:
+
+```bash
+# Baseline: plain CHI, no co-simulation
+gem5/build/X86_CHI/gem5.opt config/chi/chi_vip_se.py -c /path/to/binary
+
+# Same, plus a VIPController exposing the shm segment
+gem5/build/X86_CHI/gem5.opt config/chi/chi_vip_se.py -c /path/to/binary --vip
+```
+
+#### The TLM2 path
+
+For the in-process TLM2 transport (no gem5 process), elaborate the SystemC top
+alongside the DUT instead:
+
 ```bash
 vsim -sc top [+other_vsim_args]
 ```
 
-Questa will elaborate the RTL DUT alongside the SystemC `Top` module. The
-`CHI_VIP_Controller` sockets receive and deliver TLM2 transactions each time
-the RTL DUT drives CHI pin-level activity through the Questa CHI VIP adapter.
+`CHI_VIP_Controller`'s sockets then receive and deliver TLM2 transactions
+directly each time the DUT drives CHI pin-level activity.
 
 ---
 
@@ -621,6 +838,13 @@ gem5's Ruby event queue and SystemC's scheduler are kept separate. The shim maps
 For tighter time coupling (e.g. RTL-accurate cycle counts), adjust
 `Consumer::TICK_PER_CYCLE` in [chi_shim/sim/eventq.hh](chi_shim/sim/eventq.hh)
 to match your target clock period in picoseconds.
+
+That covers the **in-process** case, where one SystemC scheduler owns time. On
+the **IPC path** the two simulators have independent clocks and are instead
+coupled by the time-quantum barrier in `ipc/chi_ipc.hh`: each publishes
+`gem5_quantum_end_ps` / `questa_quantum_end_ps` and blocks on a futex until the
+other is within one quantum. See [Two transports](#two-transports) above;
+the quantum is set with `--quantum-ps` on the gem5 side and `0` disables it.
 
 ---
 

@@ -2,10 +2,10 @@
 //
 // Layout (ChiShmLayout placed at the start of a named shared-memory segment):
 //
-//   Q2G ring buffers (Questa vsim → gem5):
-//       q2g_req  — REQ channel (DUT → HN-F)
-//       q2g_rsp  — RSP channel (DUT → HN-F, e.g. CompAck / SnpResp)
-//       q2g_dat  — DAT channel (DUT → HN-F, e.g. CopyBackWrData)
+//   Q2G ring buffers (Questa vsim → gem5), one per requester (MAX_RNF):
+//       q2g_req[r]  — REQ channel (DUT → HN-F)
+//       q2g_rsp[r]  — RSP channel (DUT → HN-F, e.g. CompAck / SnpResp)
+//       q2g_dat[r]  — DAT channel (DUT → HN-F, e.g. CopyBackWrData)
 //
 //   G2Q ring buffers (gem5 → Questa vsim):
 //       g2q_rsp  — RSP channel (HN-F → DUT, e.g. Comp / DBIDResp)
