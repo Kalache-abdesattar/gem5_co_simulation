@@ -1,3 +1,13 @@
+# ─── External dependencies ───────────────────────────────────────────────────
+# All three are overridable; the defaults below are only a convenience for the
+# original development machine.  Nothing in this tree hardcodes an absolute
+# path -- set these on the command line or in the environment:
+#
+#     make            SC_ROOT=/path/to/systemc LIBSOC=/path/to/scc
+#     make questa_build QUESTA=/path/to/questasim
+#
+# `make check-deps` verifies them and says exactly which one is wrong.
+
 GEM5_SRC  := $(CURDIR)/gem5_src
 SHIM      := $(CURDIR)/chi_shim
 LIBSOC    ?= $(HOME)/fedora/scc_install_questa
@@ -210,17 +220,22 @@ clean:
 # Run 'make questa_build_restore_ld' to undo.
 
 QUESTA ?= $(HOME)/fedora/questa_24/questasim
-QUESTA_LD := $(QUESTA)/gcc-10.3.0-linux_x86_64/libexec/gcc/x86_64-pc-linux-gnu/10.3.0/ld
-# Questa's bundled g++ 10.3.0: produces GLIBCXX_3.4.26-compatible .so files
-# that vsim can load (Questa's bundled libstdc++ tops out at GLIBCXX_3.4.28).
-# System g++ produces GLIBCXX_3.4.30 symbols which Questa's libstdc++ cannot resolve.
-QUESTA_CXX := $(QUESTA)/gcc-10.3.0-linux_x86_64/bin/g++
+# Questa bundles several GCCs (e.g. gcc-10.3.0 and gcc-7.4.0). 10.3.0 is chosen
+# deliberately, not just "the newest": it produces GLIBCXX_3.4.26-compatible .so
+# files that vsim can load (Questa's bundled libstdc++ tops out at
+# GLIBCXX_3.4.28), whereas system g++ emits GLIBCXX_3.4.30 symbols that Questa's
+# libstdc++ cannot resolve.  Override only if your Questa ships something else:
+#     make questa_build QUESTA_GCC=gcc-11.2.0-linux_x86_64
+QUESTA_GCC   ?= gcc-10.3.0-linux_x86_64
+QUESTA_GCC_V := $(patsubst gcc-%-linux_x86_64,%,$(QUESTA_GCC))
+QUESTA_LD := $(QUESTA)/$(QUESTA_GCC)/libexec/gcc/x86_64-pc-linux-gnu/$(QUESTA_GCC_V)/ld
+QUESTA_CXX := $(QUESTA)/$(QUESTA_GCC)/bin/g++
 # System libstdc++.so.6 (resolved portably: Fedora uses /usr/lib64, Debian/Ubuntu
 # uses /usr/lib/x86_64-linux-gnu).  vsim must LD_PRELOAD/stage this so the newer
 # GLIBCXX symbols in systemc.so resolve against the system runtime.
 LIBSTDCXX ?= $(realpath $(shell $(CC) -print-file-name=libstdc++.so.6))
 QUESTA_BUILD := $(CURDIR)/questa_build
-QUESTA_OBJDIR := $(QUESTA_BUILD)/work/_sc/linux_x86_64_gcc-10.3.0
+QUESTA_OBJDIR := $(QUESTA_BUILD)/work/_sc/linux_x86_64_gcc-$(QUESTA_GCC_V)
 # RTL DAT bus width in bits (128/256/512). MUST match the SV tb's
 # CHIE_DATA_WIDTH_PARAM: it sets how many link-credits the bridge returns per
 # 512-bit line (CHI_BEATS_PER_LINE = 512/CHI_DW). Default 256 = 2 beats/line.
@@ -265,27 +280,27 @@ questa_build_restore_ld:
 	    echo "No backup found at $(QUESTA_LD).bak"; \
 	fi
 
-$(QUESTA_BUILD)/work/_sc/linux_x86_64_gcc-10.3.0/chi_ipc.o: \
+$(QUESTA_OBJDIR)/chi_ipc.o: \
         ipc/chi_ipc.cc | $(QUESTA_BUILD)/work
 	cd $(QUESTA_BUILD) && $(SCCOM) $(CURDIR)/ipc/chi_ipc.cc
 
-$(QUESTA_BUILD)/work/_sc/linux_x86_64_gcc-10.3.0/questa_top_ipc.o: \
+$(QUESTA_OBJDIR)/questa_top_ipc.o: \
         questa/questa_top_ipc.cc questa/questa_top_ipc.hh \
         questa/chi_flit_cfg.hh questa/chi_flit_pack.hh ipc/chi_ipc.hh \
         | $(QUESTA_BUILD)/work
 	cd $(QUESTA_BUILD) && $(SCCOM) $(CURDIR)/questa/questa_top_ipc.cc
 
-$(QUESTA_BUILD)/work/_sc/linux_x86_64_gcc-10.3.0/questa_top_ipc_vsim.o: \
+$(QUESTA_OBJDIR)/questa_top_ipc_vsim.o: \
         questa/questa_top_ipc_vsim.cc questa/questa_top_ipc_vsim.hh \
         | $(QUESTA_BUILD)/work
 	cd $(QUESTA_BUILD) && $(SCCOM) $(CURDIR)/questa/questa_top_ipc_vsim.cc
 
-$(QUESTA_BUILD)/work/_sc/linux_x86_64_gcc-10.3.0/questa_cosim_top_ipc.o: \
+$(QUESTA_OBJDIR)/questa_cosim_top_ipc.o: \
         questa/questa_cosim_top_ipc.cc questa/questa_top_ipc_vsim.hh \
         | $(QUESTA_BUILD)/work
 	cd $(QUESTA_BUILD) && $(SCCOM) $(CURDIR)/questa/questa_cosim_top_ipc.cc
 
-$(QUESTA_BUILD)/work/_sc/linux_x86_64_gcc-10.3.0/questa_sc_main.o: \
+$(QUESTA_OBJDIR)/questa_sc_main.o: \
         questa/questa_sc_main.cc \
         | $(QUESTA_BUILD)/work
 	cd $(QUESTA_BUILD) && $(SCCOM) $(CURDIR)/questa/questa_sc_main.cc
@@ -378,7 +393,7 @@ questa_build_cosim: $(QUESTA_BUILD)/work/systemc_sv.so $(QUESTA_BUILD)/work/tb_g
 # Must be re-run whenever chi_vip SC sources change or work/ is cleaned.
 # RNF_WORK must point to the cva6-RNF Questa work library directory.
 RNF_WORK ?= $(abspath $(CURDIR)/../../work/chi-rnf/cva6-RNF/work)
-RNF_OBJDIR = $(RNF_WORK)/_sc/linux_x86_64_gcc-10.3.0
+RNF_OBJDIR = $(RNF_WORK)/_sc/linux_x86_64_gcc-$(QUESTA_GCC_V)
 RNF_SCCOM  = PATH=$(QUESTA)/bin:$$PATH sccom -suppress sccom-94 -O2 -std=c++17 \
              -DCHI_DATA_BEAT_BITS=$(CHI_DW) \
              -work $(RNF_WORK) \
@@ -426,3 +441,54 @@ cosim-help:
 	@echo "questa_top_ipc usage in questa_cosim_top_ipc.cc:"
 	@echo "  questa_top_ipc qt(\"qt\", \"/chi_vip_0\", 1000 /*ps*/);"
 	@echo "  // bind qt ports to DUT, then sc_start()"
+
+
+# ─── Dependency checks ───────────────────────────────────────────────────────
+# Without these a wrong SC_ROOT surfaces as "fatal error: systemc.h: No such
+# file or directory", which says nothing about which variable to fix.
+
+.PHONY: check-deps check-sc check-scc check-questa
+
+check-sc:
+	@test -f "$(SC_ROOT)/src/systemc.h" || { \
+	  echo "ERROR: SystemC headers not found."; \
+	  echo "  SC_ROOT = $(SC_ROOT)"; \
+	  echo "  expected: $(SC_ROOT)/src/systemc.h"; \
+	  echo "  fix:      make SC_ROOT=/path/to/systemc"; \
+	  exit 1; }
+	@test -f "$(SC_ROOT)/build/src/libsystemc.so" || { \
+	  echo "ERROR: SystemC is not built (headers found, library missing)."; \
+	  echo "  expected: $(SC_ROOT)/build/src/libsystemc.so"; \
+	  echo "  fix:      cd $(SC_ROOT) && mkdir -p build && cd build \\"; \
+	  echo "               && cmake .. -DCMAKE_CXX_STANDARD=17 && make -j"; \
+	  exit 1; }
+
+check-scc:
+	@test -f "$(LIBSOC)/include/chi/chi_tlm.h" || { \
+	  echo "ERROR: SCC (Minres SystemC Components) headers not found."; \
+	  echo "  LIBSOC  = $(LIBSOC)"; \
+	  echo "  expected: $(LIBSOC)/include/chi/chi_tlm.h"; \
+	  echo "  fix:      make LIBSOC=/path/to/scc_install"; \
+	  exit 1; }
+
+check-questa:
+	@test -x "$(QUESTA)/bin/sccom" || { \
+	  echo "ERROR: Questa not found."; \
+	  echo "  QUESTA  = $(QUESTA)"; \
+	  echo "  expected: $(QUESTA)/bin/sccom"; \
+	  echo "  fix:      make questa_build QUESTA=/path/to/questasim"; \
+	  exit 1; }
+	@test -x "$(QUESTA_CXX)" || { \
+	  echo "ERROR: Questa's bundled g++ not found."; \
+	  echo "  QUESTA_GCC = $(QUESTA_GCC)  (expected $(QUESTA_CXX))"; \
+	  echo "  available:"; ls -d $(QUESTA)/gcc-*-linux_x86_64 2>/dev/null \
+	      | sed 's|.*/|    |' || echo "    none"; \
+	  echo "  fix:      make questa_build QUESTA_GCC=<one of the above>"; \
+	  exit 1; }
+
+check-deps: check-sc check-scc check-questa
+	@echo "all dependencies OK:"
+	@echo "  SC_ROOT    = $(SC_ROOT)"
+	@echo "  LIBSOC     = $(LIBSOC)"
+	@echo "  QUESTA     = $(QUESTA)"
+	@echo "  QUESTA_GCC = $(QUESTA_GCC)"
