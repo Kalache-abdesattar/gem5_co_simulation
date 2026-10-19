@@ -59,6 +59,7 @@ scons build/X86/gem5.opt
 
 
 import argparse
+import os
 import time
 
 import m5
@@ -249,6 +250,16 @@ size_choices = ["simsmall", "simmedium", "simlarge"]
 # Argument parsing
 # -------------------------------------------------------
 parser = argparse.ArgumentParser(description="Run X86 Ubuntu with Parsec benchmark image FS simulation with CHI cache hierarchy")
+parser.add_argument(
+    "--disk-image",
+    default=os.environ.get(
+        "PARSEC_DISK_IMAGE",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "..", "..", "images", "disk", "x86-parsec-1.0.0"),
+    ),
+    help="Path to the PARSEC disk image. Defaults to $PARSEC_DISK_IMAGE, "
+         "else images/disk/x86-parsec-1.0.0 relative to the repo root.",
+)
 parser.add_argument("--num-cores", type=int, default=4, help="Total number of cores")
 parser.add_argument("--cores-per-cluster", type=int, default=1, help="Cores per CHI cluster, a cluster is the group of cores sharing an L2")
 parser.add_argument(
@@ -408,7 +419,7 @@ board.set_kernel_disk_workload(
         "x86-linux-kernel-4.19.83", resource_version="1.0.0"
     ),
 
-    disk_image=DiskImageResource(local_path="/mnt/sim/x86-parsec-1.0.0"),
+    disk_image=DiskImageResource(local_path=os.path.abspath(args.disk_image)),
 
     readfile_contents=command,
 )
