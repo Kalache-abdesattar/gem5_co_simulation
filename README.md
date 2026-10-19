@@ -1,19 +1,78 @@
 # gem5_co_simulation
 
-This repository provides a wrapper and supporting scripts to run **co-simulations** on top of another gem5 repository. It is designed to make it easier to set up experiments, manage disk images, and reproduce results when integrating gem5 with external software stacks.
+**RTL ↔ gem5 co-simulation over the Arm CHI protocol.** gem5 runs the CHI
+**HN-F** (Home Node — Full): the coherent directory, the snoop filter and the
+memory behind them, using its real Ruby CHI state machine. A SystemVerilog DUT
+in Questa VSIM runs as one or more **RN-F** (Requester Node — Full) agents — a
+CPU with its private caches. The two simulators exchange CHI flits through a
+SystemC/TLM2 bridge and are held in step by a time-quantum barrier, so an RTL
+cache cluster can be exercised against a full coherent memory subsystem instead
+of a hand-written testbench.
+
+The repository doubles as a general gem5 harness: CHI cache hierarchies, disk
+images and benchmark runners.
+
+**The co-simulation documentation is in [`chi_vip/README.md`](chi_vip/README.md).**
 
 ---
 
-## 📌 Overview
+## Structure
 
-* Uses an **external gem5 build** as the simulator backend.
-* Provides helper scripts for configuring runs, launching workloads, and analyzing output.
-* Designed for **system-level studies** where gem5 interacts with OS images, workloads, or other simulators.
+```
+gem5_co_simulation/
+├── chi_vip/                  ← the co-simulation bridge; full docs live here
+│   ├── README.md               payload conventions, opcode maps, integration, limitations
+│   ├── TUTORIAL.md             step-by-step walkthrough
+│   ├── sc/                     CHI_VIP_Controller: sc_module + CHIGenericController
+│   ├── ipc/                    shared-memory ring buffers + futex time-quantum barrier
+│   ├── questa/                 CHI flit pack/unpack, questa_top*, SV wrappers, testbenches
+│   ├── gem5_src/               SLICC-generated CHI message types
+│   ├── chi_shim/               shims replacing the rest of gem5, so the bridge
+│   │                           builds standalone
+│   └── test/                   16 unit-test suites (test/README.md)
+│
+├── config/                   ← gem5 configuration
+│   ├── chi/
+│   │   ├── chi_hnf_only.py     gem5 as a bare HN-F, driven by the RTL DUT
+│   │   ├── chi_vip_se.py       gem5 CPUs on CHI; --vip adds the bridge
+│   │   ├── vip_hierarchy.py    hierarchy wiring for the VIP path
+│   │   ├── nodes/              CHI node definitions, incl. vip_requestor.py
+│   │   │                       (RN-F proxy registering in the Ruby network)
+│   │   ├── l3_cache_hierarchy.py, chiplet.py, classical_hierarchy.py
+│   │   └── network/            interconnect topologies
+│   ├── bench/                  PARSEC runner for X86
+│   └── run/                    generic RISC-V / X86 full-system runners
+│
+├── sw/                       ← bare-metal software run *on* the DUT
+│   ├── include/                runtime: conc.h, cosim.h, crt.S, link.ld
+│   ├── tests/                  ds_*.c concurrent data structures, bm_*.c benchmarks,
+│   │                           mt_*.c multithreaded, app_*.c applications
+│   ├── litmus/, litmus-tests-riscv/   memory-model litmus tests
+│   └── ascylib/, synchrobench/ third-party concurrent data-structure suites
+│
+├── doc/
+│   ├── cosim_architecture.md   co-simulation architecture
+│   ├── chi_extensions.md       CHI protocol extension notes
+│   ├── gem5_simulation.md      gem5-only use: disk images, Docker, PARSEC / NPB /
+│   │                           Gromacs, stats parsing, Konata traces
+│   └── mcpat_cacti.md          CACTI/McPAT cache timing and power, mapped onto
+│                               gem5 CHI latency parameters
+│
+├── gem5/                     ← gem5 submodule (build/X86_CHI, build/RISCV_CHI)
+├── helper/                     gem5 stats parsers and plotting
+├── images/                     kernels, disk images, bootloaders
+├── m5/                         libm5.a + headers for M5OPS in guest software
+└── ext/                        McPAT / CACTI
+```
+
+The **RTL DUT is not in this repository.** The CVA6/L15 RN-F used for this work
+is a separate checkout (`../work/chi-rnf/cva6-RNF`), compiled from the file
+lists in its `tb/` directory.
 
 ---
 
-## 🔧 Prerequisits
- 
+## Prerequisites
+
 ```bash
 sudo apt update
 sudo apt install -y build-essential python3 python3-dev python3-six \
@@ -21,279 +80,27 @@ sudo apt install -y build-essential python3 python3-dev python3-six \
     libboost-all-dev libhdf5-dev zlib1g-dev
 ```
 
-Make sure python3 --version > 3.10.12
+Python must be newer than 3.10.12.
 
-## Building From Source 
-### 1. Setting up a python virtual environment (Recommended)
+For the co-simulation specifically:
+
+| Requirement | Notes |
+|-------------|-------|
+| **Questa VSIM** | runs the RTL DUT and hosts the SystemC bridge via `sccom` |
+| **SystemC** | standalone build, required for every `chi_vip` target |
+| **SCC** (Minres SystemC Components) | required for the TLM2 path; versions and Conan recipe in [`chi_vip/README.md`](chi_vip/README.md) |
+
+Setup:
+
 ```bash
-python3.xx -m venv venv 
-source venv/bin/activate
+# Recommended: a virtual environment
+python3 -m venv venv && source venv/bin/activate
 python3 -m pip install --upgrade pip
 
+git clone <this repo> && cd gem5_co_simulation
+source env.sh
 ```
 
-### 2. Clone this Repository and Init
-```bash
-git clone ...
-source env.sh 
-```
-Executing **env.sh** initializes submodules, installs dependancies, builds gem5 models, pulls the necessary bootloaders and kernel images from [gem5 resources](https://resources.gem5.org/).
-
-
-#### 2.1 Building McPAT/Cacti Tools
-McPAT and CACTI are analytical tools used to estimate the performance, area, and power characteristics of memory structures, such as SRAM caches, DRAM, and register files. 
-
-
-```bash
-git submodule update --init --recursive
-```
-
-Open *ext/mcpat/cacti/cacti.mk* and remove **-m32** option. 
-Then, to enable AVX replace:
-```bash
-OPT = -O3 -msse2 -mfpmath=sse -DNTHREADS=$(NTHREADS) 
-```
-with 
-```bash
-OPT = -O3 -mavx2 -mfma -mfpmath=sse -DNTHREADS=$(NTHREADS)
-```
-
-build:
-```bash
-cd ext/mcpat/cacti
-make -j($nproc)
-```
-
-In order to build McPAT, the same steps are applied to *ext/mcpat/mcpat.mk*. However, only memory latencies are required at this stage so Cacti tool will suffice.
-
-#### 2.2 Using McPAT/Cacti Tools
-CACTI requires a configuration file (.cfg) that defines the cache architecture you want to model. A template can be found *config/mcpat_configs/*. Change the values of size, associativity, #banks,...ect and run:
-
-```bash
-./ext/mcpat/cacti/cacti -infile config/mcpat_configs/cache.cfg > cacti_cache.out
-```
-
-Please keep the *-access mode* as *fast* as it is the mode used in the GEM5 CHI model.
-
-#### 2.3 Understanding the Output of McPAT/Cacti
-After running CACTI, the tool generates a detailed hardware report. For architectural modeling in gem5, prioritize the following metrics:
-
-* **Access Time (ns):** The total time required for a cache hit. In a sequential access model, this is the sum of tag and data array delays.
-* **Cycle Time (ns):** The minimum time required between consecutive requests. If this is much lower than the Access Time, it indicates the cache is internally pipelined.
-* **Total Leakage Power (mW):** The static power consumption. For a 64MB cache at 22nm, ensuring this is under 50mW usually requires using `LSTP` (Low Standby Power) transistors.
-* **Dynamic Read/Write Energy (nJ):** The energy consumed per individual access. 
-* **Area Efficiency:** The ratio of the memory cell area to the total peripheral logic area. Values above 70% are typical for large Last Level Caches (LLCs).
-
-
-#### 2.5 Integrating with gem5
-To translate CACTI's physical results into a **gem5 CHI (Coherent Hub Interface)** model, you must map the nanosecond results to the simulator's cycle-based parameters.
-
-### Step 1: Time-to-Cycle Conversion
-Convert the nanosecond results into clock cycles based on your L3 clock frequency ($f$) (the frequency of the L3 half of cores/board frequency):
-$$\text{Cycles} = \lceil \text{CACTI Time (ns)} \times f (\text{GHz}) \rceil$$
-
-### Step 2: Parameter Mapping
-Apply the converted values to your gem5 Python configuration:
-
-| gem5 Parameter | CACTI Component |
-| :--- | :--- |
-| `tag_latency` | **Tag side** time component |
-| `data_latency` | **Data side** time component |
-
-The other latencies in the python config (eg. read_hit_latency, allocation_latency) are pipeline latency and are *fixed* regardless of the size of the data/tag memory sizes. 
-
-### 3. Getting the Disk Images Ready
-You can download the latest disk images -gem5 v25 compatible- for RISCV, X86, and ARM from [gem5 resources](https://resources.gem5.org/). 
-Download the disk image to **images/disk/**. The disk images are empty, containing only gem5-related drivers (gem5-bridge, m5) and init scripts. 
-
-```bash
-# Example
-wget -O images/kernel/riscv-ubuntu-24.04-img https://gem5dist.blob.core.windows.net/dist/develop/images/riscv/ubuntu-24-04/riscv-ubuntu-24.04-20250515.gz
-```
-
-To populate the disk image with an application of interest. You can cross compile the application or use **change root** with **user-level emulation**:
-
-```bash
-# first, make sure that user-level emulation (qemu-static) is installed
-sudo losetup -fP --show DISK-IMAGE   # sets up a loop device /dev/loopX for mount 
-sudo mount /dev/loopXpR DIR/         # R is the root partition (typically R=1 for gem5-resource disk images)
-sudo chroot DIR/ /bin/bash
-```
-Now, you can clone and compile your application natively, albeit, slower than cross compilation. 
-
-You can get the images with the Gromacs build (along with its dependancies) for X86 and RISCV from the docker image (see [docker image](https://git.dare.megware.com/dmk/gem5_co_simulation#:~:text=Docker%20Image%20Directory%20Structure)).
-
-### 4. Interacting With GEM5 Simulation Engine Through M5OPS
-Programs can interrupt GEM5 through M5OPS. M5OPS are illegal ISA-level instructions whose traps are handled by GEM5 -rather than the emulated environment-. GEM5 ships with naked C functions for M5OPS (eg. m5_exit(time)). The declarations of these functions 
-can be found under m5/include/gem5/gem5.h of this repo. The functions are defined in a static library termed libm5.a that can be found under m5/ (for both riscv and x86). Hence, include the gem5 headers and link you application-of-interest's executable against libm5.a. 
-
-
-## Using the Ready-made Docker Image
-All the sources, images, and artifects are contained within the docker image. Therefore, there is no need to reproduce the artifects yourself. 
-```bash
-docker pull abdesattar/tau_gem5:latest
-```
-
-Run the docker image interactively with privileged permissions (required for KVM and accessing Loop devices). Also, mount your local workspace: 
-```bash
-docker run -it --privileged -v $HOME_DIR:/mnt DOCKER_IMAGE
-```
-
-### Docker Image Directory Structure
-```
-/home/gem5_co_simulation/ (main)
-├── gem5/ (submodule)   # GEM5 submodule
-|   ├── build/
-|   |   ├── RISCV_CHI/  # RISCV CHI GEM5 Model Executable
-|   |   ├── X86_CHI/    # X86 CHI GEM5 Model Executable
-├── config/             # GEM5 Model config files
-|   ├── bench/          # Parsec benchmark config file for X86  
-│   ├── chi/            # CHI protocol configs, nodes, and interconnect definitions
-│   └── run/            # Generic RISC-V and X86 runner scripts
-├── checkpoints/        # Architectural checkpoints for speeding-up RISCV bring-up 
-├── images/           
-│   ├── kernel/       
-│   ├── disk/
-|   |   ├── riscv-ubuntu-npb        # ubuntu 24.04 image with Nasa Parallel Benchmark built for RISCV
-|   |   ├── riscv-ubuntu-24.04-img  # A generic ubuntu 24.04 image with Gromacs+libm5.a built for RISCV (V extension disabled)
-|   |   ├── x86-ubuntu-22.04-img    # A generic ubuntu 22.04 image with Gromacs+libm5.a built for X86 
-│   └── bootloaders/
-├── out/                # GEM5 simulation default output directory
-└── helper/             # Helper scripts for parsing GEM5 stats
-
-/home/venv/             # Python virtual environment
-/root/.cache/gem5/      # contains x86-parsec disk image downloaded directly from gem5.resources
-```
-
-## Re-running the Experiments Yourself 
-### X86 Parsec Benchmark 
-From the repo root **/home/gem5_co_simulation**.
-
-```bash
-gem5/build/X86_CHI/gem5.opt config/bench/x86-parsec.py --benchmark BENCHMARK --size {simsmall, simmedium, simlarge}
-
-# You can check other options (including the list of benchmarks) by executing:
-gem5/build/X86_CHI/gem5.opt config/bench/x86-parsec.py --help
-
-# Enabling json stats:
-gem5/build/X86_CHI/gem5.opt --stats-file=json://stats.json config/bench/x86-parsec.py --benchmark BENCHMARK --size {simsmall, simmedium, simlarge}
-
-# Quick Example
-gem5/build/X86_CHI/gem5.opt --stats-file=json://stats.json config/bench/x86-parsec.py --benchmark blackscholes --size simsmall
-
-# The benchmark blackscholes takes around 10min to complete on the detailed CHI Hierarchy with SimpleTiming (default). The exact runtime depends on your machine's
-# single threaded performance. If the application takes an abnormally long time to complete, restart it.  
-```
-
-When the gem5 loads the kernel and disk image, it exposes a port terminal port (typically on 3456). You can access it as follow from another terminal:
-```bash
-# Tip: use Tmux, it is installed in the docker image
-gem5/util/term/m5term 3456
-```
-
-### X86 and RISCV Generic Run
-Under **/home/gem5_co_simulation/config/run**, two generic run script for both X86 and RISCV are found.  
-```bash
-~ gem5/build/RISCV_CHI/gem5.opt config/run/riscv-ubuntu-run.py --help
-
-usage: riscv-ubuntu-run.py [-h] [--num-cores NUM_CORES] [--cores-per-cluster CORES_PER_CLUSTER] [--cache-class {chi,mesi-three-level,no-cache}] [--cpu-type {timing,o3,minor}] [--mem-size MEM_SIZE] [--disk-image DISK_IMAGE] [--kernel KERNEL] [--bootloader BOOTLOADER] [--save-checkpoint] [--load-checkpoint] [--checkpoint-path CHECKPOINT_PATH]
-
-Run RISCV Ubuntu FS simulation with CHI cache hierarchy
-
-options:
-  -h, --help            show this help message and exit
-  --num-cores NUM_CORES
-                        Total number of cores
-  --cores-per-cluster CORES_PER_CLUSTER
-                        Cores per CHI cluster, a cluster is the group of cores sharing an L2
-  --cache-class {chi,mesi-three-level,no-cache}
-                        Cache hierarchy class to use
-  --cpu-type {timing,o3,minor}
-                        Type of CPU model to use: timing (TimingSimpleCPU), o3 (O3CPU), or minor (MinorCPU)
-  --mem-size MEM_SIZE   Memory size (e.g., 2GiB, 8GiB)
-  --disk-image DISK_IMAGE
-                        Path to the root disk image
-  --kernel KERNEL       Path to the kernel image
-  --bootloader BOOTLOADER
-                        Path to the bootloader
-  --save-checkpoint     Save a checkpoint at the end of the simulation
-  --load-checkpoint     Load from an existing checkpoint instead of booting fresh
-  --checkpoint-path CHECKPOINT_PATH
-                        Path to the checkpoint directory
-```
-
-For RISCV, checkpointing is used to accelerate the RISC-V system bringup as well as fast-forward to Region-of-Interest within the targeted benchmark. On the other hand, X86 uses KVM for the same purpose. You can generate a checkpoint by the specifying the options **--save-checkpoint** and similarly for loading a checkpoint **load-checkpoint**; a checkpoint's path for both cases is dicated by **--checkpoint-path**.
-
-**Important**: A checkpoint will not be saved unless you perform a first "m5 exit" when you reach the saving point. You can perform an "m5 exit" interactively from the m5term terminal with **m5 exit** command, or "programatically" from within a benchmark sources' through M5OPS.   
-
-As an example, you can run NPD benchmark for RISC-V as follows: 
-```bash
-# a checkpoint already exists, we just need to load it.
-gem5/build/RISCV_CHI/gem5.opt config/run/riscv-ubuntu-run.py --disk-image /images/disk/riscv-ubuntu-24.04-npb --checkpoint-path checkpoints/riscv_ubuntu_checkpoint --load-checkpoint
-
-# similarly to before, you can enable json stats generation
-gem5/build/RISCV_CHI/gem5.opt --stats-file=json://stats.json config/run/riscv-ubuntu-run.py --disk-image /images/disk/riscv-ubuntu-24.04-npb --checkpoint-path checkpoints/riscv_ubuntu_checkpoint --load-checkpoint
-```
-
-On another (virtual) terminal:  
-```bash
-gem5/util/term/m5term 3456
-# wait a while for the session to open...
-
-# execute fourier transform, it takes some time
-/root/gem5~ ./bin/ft.S.x
-```
-
-### Enabling Cache Miss Classification
-Cache Miss Classification is disabled by default for performance considerations. To enable it, add these to the self.cache instantiation in the cache node config (all configs are under *config/chi/*). 
-Note: **self.sta_size** should preferably be > tagArraySize.
-
-```python
-self.cache = RubyCache(
-    ...
-    ...
-    enable_shadow_tags = True,
-    sta_size = 2048
-)
-```
-
-### Gromacs
-Similar as before, just point gem5 to **images/disk/riscv-ubuntu-24.04-img**:
-```bash
-~ gem5/build/RISCV_CHI/gem5.opt --disk-image /images/disk/riscv-ubuntu-24.04-img --checkpoint-path checkpoints/riscv_gromacs_checkpoint --save-checkpoint
-# There are no checkpoints for RISCV Gromacs...the bringup takes around 7min
-```
-On another (virtual) terminal:  
-```bash
-gem5/util/term/m5term 3456
-
-# On the gem5 environment 
-cd /home/gromacs/out
-
-# Executes mdrun simulation of lyzomzyme in water
-# gromacs is annotated with m5ops. Hence, gem5 will perform an exit to switch to the detailed model right before the real simulation   
-sudo /home/gromacs/build/bin/gmx mdrun -v -deffnm md_0_10 -cpt -1 -nt 4
-```
-
-### Stats Parser
-Stats parser parses the json-formatted stat file generated from gem5. It extracts scalar stat entities such as (simulation runtime, number of instructions, hit/miss ratios for each cache level), and vector stat entities (eg. delay histograms for each CHI transaction) and plots them. 
-```bash
-python3 helper/parse_stats.py --help
-  usage: parse_stats.py [-h] --stats-path STATS_PATH [--plot-dir PLOT_DIR]
-
-  Parse and visualize cache statistics from gem5 JSON stats.
-
-  options:
-    -h, --help            show this help message and exit
-    --stats-path STATS_PATH
-                          Path to the gem5 JSON stats file (e.g., /path/to/stats.json)
-    --plot-dir PLOT_DIR   Directory to save histogram plots (default: ./plots)
-
-```
-
-### Konata Viewer
-[Konata viewer](https://github.com/shioyadan/Konata) is an instruction pipeline visualizer for O3 cpu-type of GEM5. First, install [konata](https://github.com/shioyadan/Konata/releases/tag/v0.39). Then, you can generate konata-compatible traces from gem5 by using **O3PipeView** debug flags, forward the traces file to your host machine for inspection through the mounted shared directory /mnt/.
-```bash
-# An O3 cpu type must be used 
-gem5/build/RISCV_CHI/gem5.opt --debug-flags=O3PipeView --debug-file /mnt/npd_trace.v config/run/riscv-ubuntu-run.py cpu-type o3 ...
-```
+`env.sh` initialises submodules, installs dependencies, builds the gem5 models,
+and pulls bootloaders and kernel images from
+[gem5 resources](https://resources.gem5.org/).
