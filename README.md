@@ -104,3 +104,15 @@ source env.sh
 `env.sh` initialises submodules, installs dependencies, builds the gem5 models,
 and pulls bootloaders and kernel images from
 [gem5 resources](https://resources.gem5.org/).
+
+---
+
+## License
+
+Apache-2.0 — see [`LICENSE`](LICENSE).
+
+Parts of the tree are under other terms: `config/` is BSD-3-Clause,
+`chi_vip/gem5_src/` and `chi_vip/chi_shim/` are gem5/ARM BSD-3-Clause, the
+`gem5/` submodule is BSD-3-Clause, and `ext/` and `sw/{ascylib,synchrobench,
+litmus-tests-riscv}` are vendored upstream projects. [`NOTICE`](NOTICE) lists
+them; per-file headers take precedence.

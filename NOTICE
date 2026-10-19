@@ -1,0 +1,34 @@
+gem5_co_simulation
+Copyright (c) 2025-2026 Abdesattar Kalache <abdesattar.kalache@tuni.fi>
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The following parts of this repository are NOT covered by that license. Each
+retains its own terms, and the headers in individual files take precedence over
+this notice and over LICENSE.
+
+  Path                      License         Copyright holder
+  ------------------------  --------------  -------------------------------------
+  chi_vip/                  Apache-2.0      Abdesattar Kalache
+    except:
+    chi_vip/gem5_src/       BSD-3-Clause    ARM Limited (2023), gem5 contributors
+                                            -- gem5 CHI controller and
+                                            SLICC-generated message types
+    chi_vip/chi_shim/       BSD-3-Clause    gem5 contributors
+                                            -- reimplements gem5 interfaces, so
+                                            treated as derivative of gem5
+
+  config/                   BSD-3-Clause    Tampere University (2025),
+                                            The Regents of the Yonsei
+                                            University (2022)
+
+  gem5/ (submodule)         BSD-3-Clause    gem5 contributors
+                                            see gem5/LICENSE
+
+  ext/mcpat/                see upstream    McPAT / CACTI authors
+  sw/ascylib/               see LICENSE     ASCYLIB + OPTIK authors
+  sw/synchrobench/          see COPYING     Synchrobench authors
+  sw/litmus-tests-riscv/    see upstream    litmus-tests-riscv authors
+
+Third-party directories are vendored copies of upstream projects and were not
+authored here.
