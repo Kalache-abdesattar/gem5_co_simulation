@@ -170,7 +170,13 @@ static void test_flit_pack() {
         CHECK(bf_get(f, F::FWDTXNID_LO,  F::FWDTXNID_W) == 0x12,"FwdTxnID=0x12");
         CHECK(bf_getb(f, F::RETTOSRC_LO),                         "RetToSrc=1");
         CHECK(!bf_getb(f, F::DONOTGOTOSD_LO),                     "DoNotGoToSD=0");
-        CHECK(bf_getb(f, F::DONOTDATAPULL_LO),                    "DoNotDataPull=1");
+        // DoNotDataPull is deliberately NOT packed: chi_flit_pack.hh reserves
+        // bit 94 as zero ("not wired to RTL, keeps TGTID aligned"), so pack_snp
+        // never sets it even when the extension requests it.  This check
+        // asserted the opposite and so always failed -- the test was wrong, not
+        // the bridge.  Re-enable only if the field is ever wired to the RTL.
+        // CHECK(bf_getb(f, F::DONOTDATAPULL_LO),                 "DoNotDataPull=1");
+        CHECK(!bf_getb(f, F::DONOTDATAPULL_LO),  "DoNotDataPull reserved 0 (not wired)");
         CHECK(bf_getb(f, F::TRACETAG_LO),                         "TraceTag=1");
         CHECK(bf_get(f, F::ADDR_LO, F::ADDR_W) == (addr >> 3),   "address (3 LSBs dropped)");
     }
