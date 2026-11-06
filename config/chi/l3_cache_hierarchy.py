@@ -244,6 +244,17 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
             l1_prefetchers.append(l1_prefetcher_dict)
         
 
+        # Own the L2 and L3 controllers on the hierarchy BEFORE they are used as
+        # downstream_destinations.  A SimObject joins the object tree only when
+        # assigned to a non-underscore attribute of a parent; `l2_caches` is a
+        # local list and `self._l3_caches` is underscore-prefixed, so gem5 skips
+        # both.  The first `downstream_destinations = ...` assignment then adopts
+        # them as children of whichever *cache* names them, producing MachineIDs
+        # like `core_clusters0.dcache.downstream_destinations.downstream_
+        # destinations` and a CHI-cache-ports.sm assert at the first DAT message.
+        self.l2_caches = l2_caches
+        self.l3_caches = self._l3_caches
+
         # Create one core cluster with a split I/D cache for each core
         self.core_clusters = [
             self._create_core_cluster(core, i, board, l2_caches, l1_prefetchers, self._cores_per_cluster)
@@ -256,10 +267,10 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
 
 
         # In CHI, you must explicitly set downstream controllers
-        for cache in l2_caches:
-            cache.downstream_destinations = self._l3_caches
+        for cache in self.l2_caches:
+            cache.downstream_destinations = self.l3_caches
 
-        for cache in self._l3_caches:
+        for cache in self.l3_caches:
             cache.downstream_destinations = self.memory_controllers
 
 

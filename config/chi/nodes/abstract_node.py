@@ -39,6 +39,21 @@ from gem5.components.processors.cpu_types import CPUTypes
 from gem5.isas import ISA
 
 
+
+# CHI DAT channel width in bytes.
+#
+# 64 gives one flit per 64-byte line and matches the Questa CHI DUT's
+# CHI_DATA_W_BYTES=64, so the co-simulation needs it.  But gem5's own CHI
+# breaks when the channel is as wide as the cache line: with a three-level
+# hierarchy the L3's ReadNoSnp data response from the memory controller trips
+#   CHI-cache-ports.sm:117  assert(bitMask.count() <= data_channel_size
+#                                  && bitMask.count() > 0)
+# Two beats (32) work.  Override this before building a hierarchy for a
+# gem5-only run:
+#     import config.chi.nodes.abstract_node as an
+#     an.CHI_DATA_CHANNEL_SIZE = 32
+CHI_DATA_CHANNEL_SIZE = 64
+
 class TriggerMessageBuffer(MessageBuffer):
     """
     MessageBuffer for triggering internal controller events.
@@ -87,9 +102,7 @@ class AbstractNode(CHI_Cache_Controller):
         # timeouts on unique lines when a store conditional fails
         self.sc_lock_enabled = False
 
-        # Use 64-byte channels (one flit per cache line) to match the
-        # Questa CHI DUT's CHI_DATA_W_BYTES=64 interface width.
-        self.data_channel_size = 64
+        self.data_channel_size = CHI_DATA_CHANNEL_SIZE
 
         # Use near atomics (see: https://github.com/gem5/gem5/issues/449)
         self.policy_type = 0

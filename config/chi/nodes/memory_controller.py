@@ -68,7 +68,9 @@ class MemoryController(CHI_Memory_Controller):
 
         self.addr_ranges = ranges
         self.memory_out_port = port
-        self.data_channel_size = 64  # match CHI_DATA_W_BYTES=64 on Questa side
+        # Must equal the caches' width; see CHI_DATA_CHANNEL_SIZE.
+        import config.chi.nodes.abstract_node as _an
+        self.data_channel_size = _an.CHI_DATA_CHANNEL_SIZE
 
         self.connectQueues(network)
 
