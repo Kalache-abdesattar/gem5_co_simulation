@@ -145,3 +145,7 @@ class SharedL3(AbstractNode):
         self.fill_latency = lat_cfg.get("fill_latency", 39)
         self.snp_latency = lat_cfg.get("snp_latency", 39)
         self.snp_inv_latency = lat_cfg.get("snp_inv_latency", 39)
+
+        # Sample request-TBE / MSHR occupancy and secondary misses every
+        # this many L3 cycles (gem5 MSHRSampler); 0 = off
+        self.mshr_sample_period = config.get("mshr_sample_period", 0)
