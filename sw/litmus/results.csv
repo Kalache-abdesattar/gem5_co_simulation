@@ -1,0 +1,2 @@
+test,status,ticks,duration_s,log_dir
+MP,TIMEOUT,,45.40,/home/dmk/fedora/gem5_co_simulation/sw/litmus/logs/MP

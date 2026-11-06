@@ -1,0 +1,11 @@
+test,status,ticks,duration_s,questa_exit,log_dir
+RSW_W,TIMEOUT,,45.30,KILLED_AFTER_TIMEOUT,litmus/logs-rand10/RSW_W
+MP_rfi_ctrlfencei_ctrlfencei_rfipaq_poaqp,PASS,555953580576,4.72,SELF_EXIT,litmus/logs-rand10/MP_rfi_ctrlfencei_ctrlfencei_rfipaq_poaqp
+MP_rfi_ctrlfencei_ctrl_rfipaq_posaqp,TIMEOUT,,45.30,KILLED_AFTER_TIMEOUT,litmus/logs-rand10/MP_rfi_ctrlfencei_ctrl_rfipaq_posaqp
+MP_si63_fence_rw_rw,TIMEOUT,,45.40,KILLED_AFTER_TIMEOUT,litmus/logs-rand10/MP_si63_fence_rw_rw
+CoRR_pospx_X,no-exit-line,,34.08,KILLED,litmus/logs-rand10/CoRR_pospx_X
+MP_fence_tso_fence_tsoxx,PASS,795087200916,4.87,SELF_EXIT,litmus/logs-rand10/MP_fence_tso_fence_tsoxx
+R_poprl_rfirlp_ctrlfencei_rfi_ctrlfencei,no-exit-line,,33.90,KILLED,litmus/logs-rand10/R_poprl_rfirlp_ctrlfencei_rfi_ctrlfencei
+MP_rfi_ctrl_poaqp,TIMEOUT,,45.60,KILLED_AFTER_TIMEOUT,litmus/logs-rand10/MP_rfi_ctrl_poaqp
+ISA_Rel_Acq,TIMEOUT,,45.30,KILLED_AFTER_TIMEOUT,litmus/logs-rand10/ISA_Rel_Acq
+ISA03,TIMEOUT,,45.40,KILLED_AFTER_TIMEOUT,litmus/logs-rand10/ISA03

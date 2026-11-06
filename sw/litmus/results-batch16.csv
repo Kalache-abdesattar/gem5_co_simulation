@@ -1,0 +1,7 @@
+test,status,ticks,duration_s,log_dir
+MP_po_popaq_NEW,TIMEOUT,,30.40,litmus/logs-batch16/MP_po_popaq_NEW
+MP_poprl_rfirlp_ctrl_ctrl_rfipaq_poaqp,TIMEOUT,,30.40,litmus/logs-batch16/MP_poprl_rfirlp_ctrl_ctrl_rfipaq_poaqp
+R_poprl_poprl_posrlp_addrs,TIMEOUT,,30.40,litmus/logs-batch16/R_poprl_poprl_posrlp_addrs
+S__rf_fence_rw_rw_ws__ctrlfencei,TIMEOUT,,30.40,litmus/logs-batch16/S__rf_fence_rw_rw_ws__ctrlfencei
+SB_popaq_posaqp_pos_po_addr,TIMEOUT,,30.50,litmus/logs-batch16/SB_popaq_posaqp_pos_po_addr
+MP_fence_rw_rw_ctrl_rfi,TIMEOUT,,30.40,litmus/logs-batch16/MP_fence_rw_rw_ctrl_rfi
