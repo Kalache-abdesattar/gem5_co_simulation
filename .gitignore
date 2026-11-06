@@ -25,3 +25,26 @@ chi_vip/build/
 stats.json
 stats.txt
 stats.h5
+# Questa / ModelSim compile libraries and run files
+work/
+transcript
+*.vstf
+chi_vip/questa_build/
+
+# gem5 run outputs and checkpoints
+checkpoints*/
+chiplet_test*/
+
+# build products and generated firmware
+*.o
+*.so
+tools/pin/*/obj-*/
+chi_vip/bootrom.bin
+chi_vip/dram_fw.bin
+
+# logs and scratch files
+*.log
+chi_vip/etch*
+
+# local Claude Code settings
+.claude/
