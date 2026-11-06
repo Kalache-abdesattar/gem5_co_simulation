@@ -1,0 +1,6 @@
+# fetched sources, build products and local run outputs
+src/
+bin/
+runs/
+build/
+__pycache__/

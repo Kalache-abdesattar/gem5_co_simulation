@@ -1,0 +1,15 @@
+# PARSEC simdev (2 workers), three-level CHI, 2 MiB L3 (--mem ruby-l3 --l3-size 2MiB); 2026-11-03
+parsec-blackscholes    simTicks   +1.5%  ops   -0.2% loads   +0.0% stores   -0.1% fwd   -8.4% mispred  -10.9%  speedup  3.9x
+parsec-swaptions       simTicks   +1.4%  ops   -0.1% loads   +0.0% stores   -0.1% fwd   -5.2% mispred   -8.9%  speedup  3.9x
+parsec-canneal         simTicks   +0.6%  ops   +0.0% loads   +0.4% stores   +0.2% fwd   -2.9% mispred   -7.3%  speedup  3.7x
+parsec-blackscholes    17 result lines; traced MATCH, o3 MATCH
+parsec-swaptions       3 result lines; traced MATCH, o3 MATCH
+parsec-canneal         no output check (see workloads.py)
+
+# L3 MSHR samples every 100 L3 cycles
+parsec-blackscholes  o3       l3   samples    26981  MSHRs mean  0.48 p99   3 max   8/64  util  0.75%  busy  39.1%  secondary      97 (+0 pf)  per-sample 0.004 max   3
+parsec-blackscholes  interval l3   samples    27393  MSHRs mean  0.44 p99   2 max   8/64  util  0.69%  busy  39.2%  secondary      43 (+0 pf)  per-sample 0.002 max   2
+parsec-swaptions     o3       l3   samples    34689  MSHRs mean  0.39 p99   2 max   8/64  util  0.61%  busy  31.3%  secondary     159 (+0 pf)  per-sample 0.005 max   3
+parsec-swaptions     interval l3   samples    35184  MSHRs mean  0.36 p99   2 max   8/64  util  0.57%  busy  31.2%  secondary     154 (+0 pf)  per-sample 0.004 max   4
+parsec-canneal       o3       l3   samples    58899  MSHRs mean  0.24 p99   2 max   8/64  util  0.38%  busy  20.1%  secondary     104 (+0 pf)  per-sample 0.002 max   6
+parsec-canneal       interval l3   samples    59263  MSHRs mean  0.23 p99   2 max   8/64  util  0.36%  busy  20.3%  secondary      77 (+0 pf)  per-sample 0.001 max   3

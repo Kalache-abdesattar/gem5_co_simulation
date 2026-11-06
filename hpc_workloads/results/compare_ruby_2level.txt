@@ -1,0 +1,31 @@
+# IntervalCPU vs O3, tiny size, gem5 two-level Ruby CHI (--mem ruby); 2026-11-02
+# columns: % difference IntervalCPU vs O3; speedup = O3 / IntervalCPU host time (batch run on a loaded host: overstated, see README)
+smoke                  simTicks   +1.4%  ops   +0.5% loads   +0.2% stores   +0.1% fwd  -31.9% mispred   +3.1%  speedup  2.3x
+stream                 simTicks   -2.2%  ops   -0.1% loads   -0.1% stores   -0.0% fwd  -15.1% mispred   +3.8%  speedup  1.8x
+npb-cg                 simTicks   -0.3%  ops   -0.0% loads   +0.0% stores   +0.0% fwd  -11.1% mispred   -0.2%  speedup  3.8x
+npb-mg                 simTicks   -1.1%  ops   -0.0% loads   +0.0% stores   +0.0% fwd  -16.7% mispred   -2.9%  speedup  2.4x
+npb-is                 simTicks   -1.7%  ops   -0.0% loads   +0.0% stores   +0.0% fwd   -1.7% mispred   -8.9%  speedup  3.6x
+npb-lu                 simTicks   -0.4%  ops   -0.0% loads   +0.0% stores   +0.0% fwd   +1.8% mispred   -5.4%  speedup  3.5x
+npb-sp                 simTicks   -0.3%  ops   -0.0% loads   +0.0% stores   +0.0% fwd   -0.1% mispred   -4.9%  speedup  3.9x
+lulesh                 simTicks   -1.4%  ops   -0.0% loads   +0.0% stores   +0.0% fwd   -2.2% mispred   -5.0%  speedup  4.0x
+xsbench                simTicks   -2.3%  ops   -0.1% loads   +0.0% stores   -0.0% fwd  -15.8% mispred   +0.5%  speedup  6.6x
+rsbench                simTicks   -4.3%  ops   -2.6% loads   +0.0% stores   -0.0% fwd   -3.3% mispred  -43.5%  speedup  4.5x
+gapbs-bfs              simTicks   +1.9%  ops   -0.3% loads   +0.0% stores   -0.0% fwd  -29.7% mispred   -1.4%  speedup  6.2x
+gapbs-sssp             simTicks   +0.8%  ops   -0.1% loads   +0.4% stores   +0.3% fwd  -27.4% mispred   -1.3%  speedup  6.1x
+gapbs-pr               simTicks   +2.0%  ops   -0.2% loads   +0.0% stores   -0.0% fwd  -29.9% mispred   -1.2%  speedup  6.4x
+gapbs-cc               simTicks   +1.9%  ops   -0.3% loads   +0.0% stores   -0.0% fwd  -27.5% mispred   -1.3%  speedup  6.9x
+gapbs-bc               simTicks   +2.1%  ops   -0.2% loads   +0.1% stores   +0.0% fwd  -29.8% mispred   -1.3%  speedup  6.3x
+gapbs-tc               simTicks   +4.1%  ops   -0.1% loads   +0.0% stores   +0.0% fwd  -25.1% mispred   -0.2%  speedup  6.3x
+poly-gemm              simTicks   +0.0%  ops   -0.5% loads   +0.0% stores   +0.0% fwd   -4.8% mispred   +0.0%  speedup  4.6x
+poly-2mm               simTicks   -0.2%  ops   -0.4% loads   +0.0% stores   +0.0% fwd   -5.9% mispred   +0.1%  speedup  4.6x
+poly-atax              simTicks   +3.4%  ops   +0.6% loads   +0.5% stores   +0.2% fwd   -9.9% mispred   -0.9%  speedup  3.8x
+poly-lu                simTicks   -1.1%  ops   -0.6% loads   +0.0% stores   +0.0% fwd   -8.0% mispred   -0.7%  speedup  4.2x
+poly-cholesky          simTicks   -0.2%  ops   -0.4% loads   +0.0% stores   +0.0% fwd   -8.1% mispred   -0.9%  speedup  3.5x
+poly-jacobi-2d         simTicks   -0.3%  ops   -0.4% loads   +0.0% stores   +0.0% fwd   -6.1% mispred   -0.1%  speedup  4.3x
+poly-heat-3d           simTicks   -0.0%  ops   -0.6% loads   +0.0% stores   +0.0% fwd   -4.7% mispred   +0.1%  speedup  4.3x
+poly-fdtd-2d           simTicks   -1.0%  ops   -0.4% loads   +0.0% stores   +0.0% fwd   -4.2% mispred   +0.2%  speedup  3.9x
+poly-seidel-2d         simTicks   -0.4%  ops   -0.5% loads   +0.0% stores   +0.0% fwd   -7.0% mispred   +0.7%  speedup  3.9x
+poly-correlation       simTicks   -0.3%  ops   -0.3% loads   +0.0% stores   +0.0% fwd   -4.1% mispred   -0.4%  speedup  4.5x
+poly-floyd-warshall    simTicks  -10.3%  ops   -1.2% loads   +0.0% stores   +0.0% fwd   -2.1% mispred   -0.2%  speedup  3.1x
+comd                   simTicks   -0.1%  ops   +0.0% loads   +0.1% stores   +0.1% fwd   -6.2% mispred   +5.0%  speedup  3.3x
+minife                 simTicks   +0.6%  ops   +0.6% loads   +0.9% stores   +1.2% fwd  -12.3% mispred   -4.1%  speedup  3.7x

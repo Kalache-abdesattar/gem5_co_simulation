@@ -1,0 +1,5 @@
+# single-thread checks on three-level CHI, 16 MiB L3; 2026-11-03
+smoke                o3       l3   samples    18110  MSHRs mean  0.21 p99   2 max   8/64  util  0.33%  busy  16.9%  secondary       0 (+0 pf)  per-sample 0.000 max   0
+smoke                interval l3   samples    18409  MSHRs mean  0.19 p99   2 max   5/64  util  0.30%  busy  17.6%  secondary       0 (+0 pf)  per-sample 0.000 max   0
+stream               o3       l3   samples   578625  MSHRs mean  0.11 p99   1 max   8/64  util  0.17%  busy  10.7%  secondary       0 (+0 pf)  per-sample 0.000 max   0
+stream               interval l3   samples   579703  MSHRs mean  0.11 p99   1 max   6/64  util  0.17%  busy  10.7%  secondary       0 (+0 pf)  per-sample 0.000 max   0
