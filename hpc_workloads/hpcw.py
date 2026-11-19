@@ -232,8 +232,8 @@ def trace_capture(wl, a, exe, args, env):
             "--pb2-dir", T["PB2_DIR"], "--delay-model", "flat",
             "--comp-delay", "500"]
     pin = [T["PIN"], "-t", T["ETRACE"], "-o", f"{raw}/run", "-max", "0",
-           "-crack", "1", "-autosync", "1", "-uoptable", T["UOPTABLE"], "--",
-           exe] + args
+           "-crack", "1", "-autosync", "1", "-uoptable", T["UOPTABLE"]] + \
+        WORKLOADS[wl]["etrace"] + ["--", exe] + args
     pin_env = program_env(env)
     pin_ok = WORKLOADS[wl]["exit_ok"]
     try:
@@ -289,7 +289,7 @@ def do_trace(wl, a):
     """Pin + etrace with gem5's micro-op table, through gzip FIFOs, then
     etrace_to_elastic: $TRACE_ROOT/<wl>/<size>/elastic."""
     exe, args, env = cmdline(wl, a.size)
-    n = counted(wl, a.size)
+    n = a.assume_insts or counted(wl, a.size)
     os.makedirs(T["TRACE_ROOT"], exist_ok=True)
     need = (n or 0) * (BYTES_PER_INST +
                        (0 if streamed(wl, a) else RAW_BYTES_PER_INST))
@@ -564,6 +564,10 @@ def main():
     ap.add_argument("--threads", type=int, default=1,
                     help="threads the run creates (default 1: serial "
                          "builds; see README on OpenMP)")
+    ap.add_argument("--assume-insts", type=float, default=0, metavar="N",
+                    help="trace: instructions to budget disk space for, "
+                         "instead of the Pin count (which includes barrier "
+                         "spinning that -barrier_fn leaves out of the trace)")
     ap.add_argument("--keep-raw", action="store_true",
                     help="keep the raw etrace text (large)")
     ap.add_argument("--discard-trace", action="store_true",

@@ -8,6 +8,7 @@ Each entry describes one runnable workload:
   inputs  per size, a tar file unpacked into the run directory first
   args    command-line arguments per size
   env     extra environment variables
+  etrace  extra etrace (Pin tool) options for the trace capture
   check   (source, regex) pairs selecting the deterministic result lines
           compared between the native run, the traced run and the O3 run.
           source: "stdout", "stderr", or a glob for an output file. With a
@@ -23,12 +24,12 @@ WORKLOADS = {}
 
 
 def add(name, about, bin, args=None, env=None, check=(), exit_ok=(0,),
-        threads=1, inputs=None):
+        threads=1, inputs=None, etrace=()):
     WORKLOADS[name] = dict(name=name, about=about, bin=bin,
                            args=args or {"tiny": [], "small": []},
                            env=env or {}, check=list(check),
                            exit_ok=tuple(exit_ok), threads=threads,
-                           inputs=inputs or {})
+                           inputs=inputs or {}, etrace=list(etrace))
 
 
 # --- smoke: in-repo kernel for checking the tool flow (not a benchmark) -----
@@ -191,6 +192,67 @@ add("parsec-canneal", "PARSEC canneal simulated-annealing routing, "
     threads=3,
     inputs={s: f"{PARSEC}/kernels/canneal/inputs/input_{p}.tar"
             for s, p in (("tiny", "simdev"), ("small", "simsmall"))})
+
+
+# --- PARSEC, 4 worker threads (5 with main), larger inputs ----------------
+# For multi-core validation of cache models: more threads sharing lines and
+# a bigger working set than the 2-worker simdev runs. tiny uses simsmall
+# inputs with reduced iteration counts, small the full simsmall run.
+add("parsec-blackscholes-4w", "PARSEC blackscholes, 4 workers (simsmall "
+    "options)",
+    f"{PARSEC}/apps/blackscholes/{PARSEC_BIN}/blackscholes",
+    args={"tiny": ["4", "in_4K.txt", "prices.txt"],
+          "small": ["4", "in_16K.txt", "prices.txt"]},
+    threads=5,
+    inputs={s: f"{PARSEC}/apps/blackscholes/inputs/input_{p}.tar"
+            for s, p in (("tiny", "simsmall"), ("small", "simmedium"))},
+    check=[("prices.txt", r"^(.+)$")])
+add("parsec-swaptions-4w", "PARSEC swaptions, 4 workers",
+    f"{PARSEC}/apps/swaptions/{PARSEC_BIN}/swaptions",
+    args={"tiny": ["-ns", "8", "-sm", "400", "-nt", "4"],
+          "small": ["-ns", "16", "-sm", "10000", "-nt", "4"]},
+    threads=5,
+    check=[("stderr", r"(Swaption \d+: \[SwaptionPrice: .*\])")])
+# tiny: the simdev netlist (100 elements) with many swaps, so the workers
+# contend for the same lines; loading the simsmall netlist alone costs ~6.7G
+# instructions.
+add("parsec-canneal-4w", "PARSEC canneal, 4 workers (simdev netlist, more "
+    "swaps)",
+    f"{PARSEC}/kernels/canneal/{PARSEC_BIN}/canneal",
+    args={"tiny": ["4", "1000", "300", "100.nets", "64"],
+          "small": ["4", "10000", "2000", "100000.nets", "32"]},
+    threads=5,
+    inputs={s: f"{PARSEC}/kernels/canneal/inputs/input_{p}.tar"
+            for s, p in (("tiny", "simdev"), ("small", "simsmall"))})
+
+# --- PARSEC memory-intensive kernels, 4 workers ------------------------------
+# streamcluster and fluidanimate synchronise with PARSEC's own barrier
+# (parsec_barrier_wait: mutex + condition variable, may spin), which etrace
+# records as a barrier with -barrier_fn (not the mutex and spin inside it).
+# streamcluster runs its parallel local search twice (the chunk, then the
+# final clustering), creating and joining 4 workers each time: 9 traced
+# threads, at most 5 alive at once.
+PARSEC_BARRIER = ["-barrier_fn", "_Z19parsec_barrier_waitP16parsec_barrier_t"]
+# tiny: 1536 points x 64 dimensions (393 KB of points, over the L2), k 2..3:
+# ~0.4G instructions of work; simsmall (4096 x 32, k 10..20) is ~6.7G.
+add("parsec-streamcluster-4w", "PARSEC streamcluster online clustering, "
+    "4 workers (1536 x 64 points / simmedium)",
+    f"{PARSEC}/kernels/streamcluster/{PARSEC_BIN}/streamcluster",
+    args={"tiny": ["2", "3", "64", "1536", "1536", "1000", "none",
+                   "output.txt", "4"],
+          "small": ["10", "20", "64", "8192", "8192", "1000", "none",
+                    "output.txt", "4"]},
+    threads=9, etrace=PARSEC_BARRIER)
+# tiny: the 5K-particle (test) input for 2 frames, ~0.37G instructions of
+# work; each frame of the 15K input is ~0.6G.
+add("parsec-fluidanimate-4w", "PARSEC fluidanimate SPH fluid, 4 workers "
+    "(5K particles 2 frames / 35K 5 frames)",
+    f"{PARSEC}/apps/fluidanimate/{PARSEC_BIN}/fluidanimate",
+    args={"tiny": ["4", "2", "in_5K.fluid", "out.fluid"],
+          "small": ["4", "5", "in_35K.fluid", "out.fluid"]},
+    threads=5, etrace=PARSEC_BARRIER,
+    inputs={s: f"{PARSEC}/apps/fluidanimate/inputs/input_{p}.tar"
+            for s, p in (("tiny", "test"), ("small", "simsmall"))})
 
 
 def binary(w, size):
