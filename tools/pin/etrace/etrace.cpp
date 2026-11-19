@@ -83,6 +83,14 @@ KNOB<string> KnobSyncEnd(KNOB_MODE_WRITEONCE, "pintool", "sync_end",
  * barrier wait IS a barrier. */
 KNOB<BOOL> KnobAutoSync(KNOB_MODE_WRITEONCE, "pintool", "autosync", "0",
                         "derive sync markers from pthread calls");
+/* Barriers a program implements itself (PARSEC's parsec_barrier_wait: a
+ * mutex + condition variable, optionally spinning first). Hooked like
+ * pthread_barrier_wait. Inside one, a thread's instructions and mutex calls
+ * are not recorded: the spin and the barrier's own lock are waiting, which
+ * the replay's barrier models, not work. Comma-separated symbol names as the
+ * image lists them (mangled for C++). Needs -autosync. */
+KNOB<string> KnobBarrierFn(KNOB_MODE_WRITEONCE, "pintool", "barrier_fn", "",
+                           "functions to treat as barrier waits");
 /* Pin lists RIP among the registers a branch writes and a branch or a
  * RIP-relative access reads, so tracking it makes every branch depend on the
  * previous one. In a loop that is a carried chain through the branch's three
@@ -193,8 +201,9 @@ struct TState
     ADDRINT pendingCreate; /* pthread_t* of an in-flight pthread_create */
     UINT32 lastJoinChild;  /* dedupe: pthread_join is hooked in libc and */
     UINT64 lastJoinAt;     /* in the libpthread forwarder, both run      */
+    UINT32 inBarrier;      /* inside a -barrier_fn call: record nothing  */
     char                      buf[512];     /* formatted record staging */
-    TState() : seq(0), emitted(0), syncs(0), insts(0)
+    TState() : seq(0), emitted(0), syncs(0), insts(0), inBarrier(0)
     {
         lastWriter.assign(REG_LAST, 0);
         lastWriterHi.assign(REG_LAST, 0);
@@ -230,6 +239,7 @@ static VOID OnInst(THREADID tid, InstDesc* d, ADDRINT ea)
     if (KnobRoi.Value() && !g_roiActive) return;
     TState* s = TS(tid);
     if (!s) return;
+    if (s->inBarrier) return;     /* waiting in a -barrier_fn, not work */
     if (d->isFirst) d->execs++;   /* coverage counts even unrecorded runs */
     if (KnobMax.Value() && s->emitted >= KnobMax.Value()) return;
     if (KnobMaxInsts.Value() && s->insts >= KnobMaxInsts.Value()) return;
@@ -453,6 +463,7 @@ static VOID OnAutoSync(THREADID tid, UINT32 type, UINT32 isEnd)
     if (KnobRoi.Value() && !g_roiActive) return;
     TState* s = TS(tid);
     if (!s) return;
+    if (type == 1 && s->inBarrier) return;   /* the barrier's own mutex */
     s->out << "Y " << type << ' ' << isEnd << ' ' << s->emitted << '\n';
     s->syncs++;
 }
@@ -521,6 +532,21 @@ static VOID OnTryLock(THREADID tid, ADDRINT ret)
 {
     if (ret != 0) return;                 /* did not acquire */
     OnAutoSync(tid, 1, 0);
+}
+
+static VOID OnBarrierFnEnter(THREADID tid)
+{
+    OnAutoSync(tid, 2, 0);
+    TState* s = TS(tid);
+    if (s) s->inBarrier++;
+}
+
+static VOID OnBarrierFnLeave(THREADID tid)
+{
+    TState* s = TS(tid);
+    if (!s || !s->inBarrier) return;
+    s->inBarrier--;
+    OnAutoSync(tid, 2, 1);
 }
 
 static VOID RoiBegin() { g_roiActive = true;  }
@@ -1046,6 +1072,23 @@ static VOID Image(IMG img, VOID* v)
             RTN_Close(tl);
             std::cerr << "[etrace] autosync hooked pthread_mutex_trylock"
                       << " (after, success only)\n";
+        }
+        std::string fns = KnobBarrierFn.Value();
+        for (size_t p = 0; p < fns.size();) {
+            size_t q = fns.find(',', p);
+            if (q == std::string::npos) q = fns.size();
+            const std::string sym = fns.substr(p, q - p);
+            p = q + 1;
+            RTN r = sym.empty() ? RTN_Invalid() : RTN_FindByName(img, sym.c_str());
+            if (!RTN_Valid(r)) continue;
+            RTN_Open(r);
+            RTN_InsertCall(r, IPOINT_BEFORE, (AFUNPTR)OnBarrierFnEnter,
+                           IARG_THREAD_ID, IARG_END);
+            RTN_InsertCall(r, IPOINT_AFTER, (AFUNPTR)OnBarrierFnLeave,
+                           IARG_THREAD_ID, IARG_END);
+            RTN_Close(r);
+            std::cerr << "[etrace] autosync hooked barrier function " << sym
+                      << "\n";
         }
         for (UINT32 k = 0; k < 4; k++) {
             RTN r = RTN_FindByName(img, H[k].sym);
