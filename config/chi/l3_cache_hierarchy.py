@@ -100,6 +100,7 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
         l3_config: dict,
         cores_per_cluster: int,
         num_l3_slices : int = 1,
+        l1l2_link_clock: str = "noc",
     ):
         """
         Args:
@@ -117,6 +118,10 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
         self._l3_config = l3_config
         self._cores_per_cluster = cores_per_cluster
         self._num_l3_slices = num_l3_slices
+        # "noc": the L1/L2 routers run at the NoC/L3 clock (half the core's);
+        # "core": they run at the core clock (L2 -> L3 links stay at the NoC's)
+        assert l1l2_link_clock in ("noc", "core")
+        self._l1l2_link_clock = l1l2_link_clock
 
         # Cache network reference (will be provided later by the system)
         self._network = None
@@ -160,7 +165,9 @@ class L3CacheHierarchy(AbstractRubyCacheHierarchy):
             self._cores_per_cluster,
             board.has_dma_ports(),
             self._num_l3_slices,
-            clk_domain = self.sys_clk_domain
+            clk_domain = self.sys_clk_domain,
+            l1l2_clk_domain = (core_clk_domain
+                               if self._l1l2_link_clock == "core" else None),
         )
 
         # Network configurations

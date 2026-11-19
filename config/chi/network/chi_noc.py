@@ -38,7 +38,11 @@ from m5.objects import (
 class ChiNoC(SimpleNetwork):
     """A custom hierarchical network. This doesn't not use garnet -yet-."""
 
-    def __init__(self, ruby_system, num_cores, cores_per_cluster, has_dma_ports, num_l3_slices, clk_domain):
+    def __init__(self, ruby_system, num_cores, cores_per_cluster, has_dma_ports, num_l3_slices, clk_domain,
+                 l1l2_clk_domain=None):
+        """l1l2_clk_domain: if set, the L1 and L2 routers (and so the L1<->L2
+        links and the L2's input link) run on this clock; the L2 -> L3 links
+        keep the NoC clock (they are timed by their destination router)."""
         super().__init__()
         self.netifs = []
 
@@ -52,6 +56,7 @@ class ChiNoC(SimpleNetwork):
         self._cores_per_cluster = cores_per_cluster
         self._has_dma_ports = has_dma_ports
         self._num_l3_slices = num_l3_slices
+        self._l1l2_clk_domain = l1l2_clk_domain
 
     def connectControllers(self, controllers):
         """
@@ -59,6 +64,11 @@ class ChiNoC(SimpleNetwork):
 
         # Create one router/switch per controller in the system
         self.routers = [Switch(router_id=i, ext_routing_latency=1, int_routing_latency=1) for i in range(len(controllers))]
+        num_l2s = self._num_cores // self._cores_per_cluster
+        if self._l1l2_clk_domain is not None:
+            for i in range(2 * self._num_cores + num_l2s):   # L1D, L1I, L2
+                self.routers[i].clk_domain = self._l1l2_clk_domain
+        uplink_dst_clock = self._l1l2_clk_domain is not None
 
         # Make a link from each controller to the router. The link goes
         # externally to the network.
@@ -98,7 +108,8 @@ class ChiNoC(SimpleNetwork):
             
             for j in range(self._num_l3_slices): 
                 link_count += 1
-                int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l2_idx], dst_node=self.routers[l3_idx+j]))
+                int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l2_idx], dst_node=self.routers[l3_idx+j],
+                                               use_dst_clock=uplink_dst_clock))
                 
                 link_count += 1
                 int_links.append(SimpleIntLink(link_id=link_count, src_node=self.routers[l3_idx+j], dst_node=self.routers[l2_idx]))
